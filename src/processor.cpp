@@ -129,7 +129,7 @@ clap_process_status silvertune_process(SilvertunePlugin *p, const clap_process_t
         float target_hz = midi_to_hz(static_cast<float>(nearest_midi));
 
         pitch_ratio = target_hz / p->current_pitch_hz;
-        pitch_ratio = 1.0f + (pitch_ratio - 1.0f) * (1.0f - speed);
+        pitch_ratio = 1.0f + (pitch_ratio - 1.0f) * speed;
         pitch_ratio = std::clamp(pitch_ratio, 0.5f, 2.0f);
     }
 

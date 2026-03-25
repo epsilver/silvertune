@@ -53,11 +53,11 @@ static bool params_get_info(const clap_plugin_t *, uint32_t index, clap_param_in
     case PARAM_SPEED:
         info->id = PARAM_SPEED;
         info->flags = CLAP_PARAM_IS_AUTOMATABLE;
-        strncpy(info->name, "Speed", CLAP_NAME_SIZE);
+        strncpy(info->name, "Snap", CLAP_NAME_SIZE);
         info->module[0] = '\0';
         info->min_value = 0.0;
         info->max_value = 1.0;
-        info->default_value = 0.0;
+        info->default_value = 1.0;
         return true;
 
     default:
