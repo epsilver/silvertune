@@ -209,18 +209,11 @@ static const clap_plugin_factory_t silvertune_factory = {
     .create_plugin         = factory_create_plugin,
 };
 
-static bool entry_init(const char *) { return true; }
-static void entry_deinit(void) {}
+bool silvertune_entry_init(const char *) { return true; }
+void silvertune_entry_deinit(void) {}
 
-static const void *entry_get_factory(const char *factory_id) {
+const void *silvertune_entry_get_factory(const char *factory_id) {
     if (strcmp(factory_id, CLAP_PLUGIN_FACTORY_ID) == 0)
         return &silvertune_factory;
     return nullptr;
 }
-
-extern "C" CLAP_EXPORT const clap_plugin_entry_t clap_entry = {
-    .clap_version = CLAP_VERSION,
-    .init         = entry_init,
-    .deinit       = entry_deinit,
-    .get_factory  = entry_get_factory,
-};
