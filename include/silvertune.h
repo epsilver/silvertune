@@ -4,9 +4,8 @@
 #include <cstdint>
 #include <vector>
 
-#include <aubio/aubio.h>
-
 #include <clap/clap.h>
+#include "yin.h"
 
 // Parameter IDs
 enum {
@@ -66,22 +65,15 @@ struct SilvertunePlugin {
     double sample_rate = 48000.0;
     uint32_t max_frames = 1024;
 
-    // Pitch detection (aubio)
-    aubio_pitch_t *pitch_detector = nullptr;
-    fvec_t        *pitch_input    = nullptr;
-    fvec_t        *pitch_output   = nullptr;
-    uint32_t       pitch_buf_size = 1024;
-    uint32_t       pitch_hop_size = 256;
+    // Pitch detection (YIN)
+    YinDetector yin;
+    float held_ratio = 1.0f;
 
     // Grain pitch shifters (one per channel)
     GrainShifter shifter[2];
 
     // Internal buffers
     std::vector<float> mono_buf;
-    std::vector<float> pitch_accum;
-    uint32_t           pitch_accum_pos = 0;
-    float              current_pitch_hz = 0.0f;
-    float              current_confidence = 0.0f;
 
     // Latency
     uint32_t total_latency = 0;

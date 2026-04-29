@@ -5,10 +5,6 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-# Find dependencies
-find_package(PkgConfig REQUIRED)
-pkg_check_modules(AUBIO REQUIRED aubio)
-
 # clap-wrapper (provides make_clapfirst_plugins, clap target, etc.)
 set(CLAP_SDK_ROOT ${CMAKE_SOURCE_DIR}/clap)
 set(CLAP_WRAPPER_DOWNLOAD_DEPENDENCIES TRUE)
@@ -20,21 +16,16 @@ add_library(silvertune-impl STATIC
     src/processor.cpp
     src/parameters.cpp
     src/scale.cpp
+    src/yin.cpp
 )
 
 target_include_directories(silvertune-impl PUBLIC
     ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_SOURCE_DIR}/clap/include
-    ${AUBIO_INCLUDE_DIRS}
 )
 
 target_link_libraries(silvertune-impl PUBLIC
     clap
-    ${AUBIO_LIBRARIES}
-)
-
-target_link_directories(silvertune-impl PUBLIC
-    ${AUBIO_LIBRARY_DIRS}
 )
 
 # Build CLAP + VST3 from the static library
@@ -51,5 +42,10 @@ make_clapfirst_plugins(
 
     COPY_AFTER_BUILD FALSE
 
-    PLUGIN_FORMATS CLAP VST3
+    PLUGIN_FORMATS CLAP VST3 AUV2
+
+    AUV2_MANUFACTURER_NAME "Vertical Rectangle"
+    AUV2_MANUFACTURER_CODE "VtRc"
+    AUV2_SUBTYPE_CODE "Tune"
+    AUV2_INSTRUMENT_TYPE "aufx"
 )

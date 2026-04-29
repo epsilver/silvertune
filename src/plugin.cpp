@@ -81,32 +81,12 @@ static bool plugin_activate(const clap_plugin_t *plugin, double sample_rate,
     p->max_frames = max_frames;
 
     // --- Pitch detection setup ---
-    p->pitch_buf_size = 1024;
-    p->pitch_hop_size = 256;
-
-    p->pitch_detector = new_aubio_pitch(
-        "yin", p->pitch_buf_size, p->pitch_hop_size,
-        static_cast<uint_t>(sample_rate));
-
-    if (!p->pitch_detector)
-        return false;
-
-    aubio_pitch_set_unit(p->pitch_detector, "Hz");
-    aubio_pitch_set_silence(p->pitch_detector, -40.0f);
-    aubio_pitch_set_tolerance(p->pitch_detector, 0.15f);
-
-    p->pitch_input  = new_fvec(p->pitch_hop_size);
-    p->pitch_output = new_fvec(1);
-
-    p->pitch_accum.resize(p->pitch_hop_size, 0.0f);
-    p->pitch_accum_pos = 0;
-    p->current_pitch_hz = 0.0f;
-    p->current_confidence = 0.0f;
+    p->yin.init(static_cast<float>(sample_rate));
+    p->held_ratio = 1.0f;
 
     // --- Grain pitch shifter setup ---
-    uint32_t grain = 256;
     for (int ch = 0; ch < 2; ++ch) {
-        p->shifter[ch].grain_size = grain;
+        p->shifter[ch].grain_size = 512;
         p->shifter[ch].reset();
     }
 
@@ -116,22 +96,7 @@ static bool plugin_activate(const clap_plugin_t *plugin, double sample_rate,
     return true;
 }
 
-static void plugin_deactivate(const clap_plugin_t *plugin) {
-    auto *p = static_cast<SilvertunePlugin *>(plugin->plugin_data);
-
-    if (p->pitch_detector) {
-        del_aubio_pitch(p->pitch_detector);
-        p->pitch_detector = nullptr;
-    }
-    if (p->pitch_input) {
-        del_fvec(p->pitch_input);
-        p->pitch_input = nullptr;
-    }
-    if (p->pitch_output) {
-        del_fvec(p->pitch_output);
-        p->pitch_output = nullptr;
-    }
-}
+static void plugin_deactivate(const clap_plugin_t *) {}
 
 static bool plugin_start_processing(const clap_plugin_t *) { return true; }
 static void plugin_stop_processing(const clap_plugin_t *) {}
@@ -140,9 +105,8 @@ static void plugin_reset(const clap_plugin_t *plugin) {
     auto *p = static_cast<SilvertunePlugin *>(plugin->plugin_data);
     for (int ch = 0; ch < 2; ++ch)
         p->shifter[ch].reset();
-    p->pitch_accum_pos = 0;
-    p->current_pitch_hz = 0.0f;
-    p->current_confidence = 0.0f;
+    p->yin.init(static_cast<float>(p->sample_rate));
+    p->held_ratio = 1.0f;
 }
 
 static clap_process_status plugin_process(const clap_plugin_t *plugin,

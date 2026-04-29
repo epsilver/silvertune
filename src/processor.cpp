@@ -103,35 +103,25 @@ clap_process_status silvertune_process(SilvertunePlugin *p, const clap_process_t
         p->mono_buf[i] = sum / static_cast<float>(num_channels);
     }
 
-    // Feed samples into pitch detection accumulator
-    for (uint32_t i = 0; i < frames; ++i) {
-        p->pitch_accum[p->pitch_accum_pos++] = p->mono_buf[i];
+    // Feed samples into YIN detector
+    for (uint32_t i = 0; i < frames; ++i)
+        p->yin.push_sample(p->mono_buf[i]);
 
-        if (p->pitch_accum_pos >= p->pitch_hop_size) {
-            for (uint32_t j = 0; j < p->pitch_hop_size; ++j)
-                p->pitch_input->data[j] = p->pitch_accum[j];
-
-            aubio_pitch_do(p->pitch_detector, p->pitch_input, p->pitch_output);
-            p->current_pitch_hz = p->pitch_output->data[0];
-            p->current_confidence = aubio_pitch_get_confidence(p->pitch_detector);
-            p->pitch_accum_pos = 0;
-        }
-    }
+    if (p->yin.pending)
+        p->yin.run_detect();
 
     // Determine pitch ratio
-    float pitch_ratio = 1.0f;
-
-    if (p->current_pitch_hz > 50.0f && p->current_pitch_hz < 2000.0f &&
-        p->current_confidence > 0.6f) {
-        float detected_midi = hz_to_midi(p->current_pitch_hz);
+    if (p->yin.pitch_hz > 50.0f && p->yin.pitch_hz < 2000.0f && p->yin.confidence > 0.5f) {
+        float detected_midi = hz_to_midi(p->yin.pitch_hz);
         int nearest_midi = quantize_to_scale(
             static_cast<int>(std::round(detected_midi)), root_key, scale);
         float target_hz = midi_to_hz(static_cast<float>(nearest_midi));
-
-        pitch_ratio = target_hz / p->current_pitch_hz;
-        pitch_ratio = 1.0f + (pitch_ratio - 1.0f) * speed;
-        pitch_ratio = std::clamp(pitch_ratio, 0.5f, 2.0f);
+        float ratio = target_hz / p->yin.pitch_hz;
+        ratio = 1.0f + (ratio - 1.0f) * speed;
+        p->held_ratio = std::clamp(ratio, 0.5f, 2.0f);
     }
+
+    float pitch_ratio = p->held_ratio;
 
     // Process each sample through the grain shifter
     for (uint32_t i = 0; i < frames; ++i) {
