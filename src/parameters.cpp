@@ -47,7 +47,7 @@ static bool params_get_info(const clap_plugin_t *, uint32_t index, clap_param_in
         info->module[0] = '\0';
         info->min_value = 0.0;
         info->max_value = 1.0;
-        info->default_value = 0.5;
+        info->default_value = 1.0;
         return true;
 
     case PARAM_SPEED:

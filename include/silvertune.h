@@ -58,8 +58,8 @@ struct SilvertunePlugin {
     // Parameters (atomic for thread safety between main/audio)
     std::atomic<double> param_key{0.0};
     std::atomic<double> param_scale{0.0};
-    std::atomic<double> param_mix{0.5};
-    std::atomic<double> param_speed{0.0};
+    std::atomic<double> param_mix{1.0};
+    std::atomic<double> param_speed{1.0};
 
     // Audio state
     double sample_rate = 48000.0;
