@@ -103,22 +103,21 @@ clap_process_status silvertune_process(SilvertunePlugin *p, const clap_process_t
         p->mono_buf[i] = sum / static_cast<float>(num_channels);
     }
 
-    // Feed samples into YIN detector
-    for (uint32_t i = 0; i < frames; ++i)
+    // Feed samples into YIN — run detection inline whenever buffer fills
+    for (uint32_t i = 0; i < frames; ++i) {
         p->yin.push_sample(p->mono_buf[i]);
-
-    if (p->yin.pending)
-        p->yin.run_detect();
-
-    // Determine pitch ratio
-    if (p->yin.pitch_hz > 50.0f && p->yin.pitch_hz < 2000.0f && p->yin.confidence > 0.5f) {
-        float detected_midi = hz_to_midi(p->yin.pitch_hz);
-        int nearest_midi = quantize_to_scale(
-            static_cast<int>(std::round(detected_midi)), root_key, scale);
-        float target_hz = midi_to_hz(static_cast<float>(nearest_midi));
-        float ratio = target_hz / p->yin.pitch_hz;
-        ratio = 1.0f + (ratio - 1.0f) * speed;
-        p->held_ratio = std::clamp(ratio, 0.5f, 2.0f);
+        if (p->yin.pending) {
+            p->yin.run_detect();
+            if (p->yin.pitch_hz > 50.0f && p->yin.pitch_hz < 2000.0f && p->yin.confidence > 0.5f) {
+                float detected_midi = hz_to_midi(p->yin.pitch_hz);
+                int nearest_midi = quantize_to_scale(
+                    static_cast<int>(std::round(detected_midi)), root_key, scale);
+                float target_hz = midi_to_hz(static_cast<float>(nearest_midi));
+                float ratio = target_hz / p->yin.pitch_hz;
+                ratio = 1.0f + (ratio - 1.0f) * speed;
+                p->held_ratio = std::clamp(ratio, 0.5f, 2.0f);
+            }
+        }
     }
 
     float pitch_ratio = p->held_ratio;
