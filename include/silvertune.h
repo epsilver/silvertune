@@ -11,10 +11,12 @@
 enum {
     PARAM_KEY   = 0,
     PARAM_SCALE = 1,
-    PARAM_MIX   = 2,
+    PARAM_WIDE  = 2,
     PARAM_SPEED = 3,
     PARAM_COUNT = 4
 };
+
+static constexpr float DETUNE = 1.00463f; // +8 cents
 
 // Scale types
 enum ScaleType {
@@ -58,7 +60,7 @@ struct SilvertunePlugin {
     // Parameters (atomic for thread safety between main/audio)
     std::atomic<double> param_key{0.0};
     std::atomic<double> param_scale{0.0};
-    std::atomic<double> param_mix{1.0};
+    std::atomic<double> param_wide{0.0};
     std::atomic<double> param_speed{1.0};
 
     // Audio state
@@ -69,8 +71,9 @@ struct SilvertunePlugin {
     YinDetector yin;
     float held_ratio = 1.0f;
 
-    // Grain pitch shifters (one per channel)
+    // Grain pitch shifters (one per channel) + doubler
     GrainShifter shifter[2];
+    GrainShifter doubler[2];
 
     // Internal buffers
     std::vector<float> mono_buf;
