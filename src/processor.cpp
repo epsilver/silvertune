@@ -67,7 +67,7 @@ static void process_events(SilvertunePlugin *p, const clap_input_events_t *in) {
             switch (ev->param_id) {
             case PARAM_KEY:   p->param_key.store(ev->value);   break;
             case PARAM_SCALE: p->param_scale.store(ev->value); break;
-            case PARAM_MIX:   p->param_mix.store(ev->value);   break;
+            case PARAM_WIDE:  p->param_wide.store(ev->value);   break;
             case PARAM_SPEED: p->param_speed.store(ev->value);  break;
             }
         }
@@ -92,7 +92,7 @@ clap_process_status silvertune_process(SilvertunePlugin *p, const clap_process_t
 
     int root_key = static_cast<int>(p->param_key.load());
     auto scale = static_cast<ScaleType>(static_cast<int>(p->param_scale.load()));
-    float mix = static_cast<float>(p->param_mix.load());
+    float wide = static_cast<float>(p->param_wide.load());
     float speed = static_cast<float>(p->param_speed.load());
 
     // Sum to mono for pitch detection
@@ -122,12 +122,13 @@ clap_process_status silvertune_process(SilvertunePlugin *p, const clap_process_t
 
     float pitch_ratio = p->held_ratio;
 
-    // Process each sample through the grain shifter
+    // Process each sample through the grain shifter + doubler
     for (uint32_t i = 0; i < frames; ++i) {
         for (uint32_t ch = 0; ch < num_channels; ++ch) {
             float dry = in_buf.data32[ch][i];
             float wet = p->shifter[ch].process(dry, static_cast<double>(pitch_ratio));
-            out_buf.data32[ch][i] = dry * (1.0f - mix) + wet * mix;
+            float dbl = p->doubler[ch].process(dry, static_cast<double>(pitch_ratio) * DETUNE);
+            out_buf.data32[ch][i] = wet + dbl * wide;
         }
     }
 

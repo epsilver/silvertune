@@ -40,14 +40,14 @@ static bool params_get_info(const clap_plugin_t *, uint32_t index, clap_param_in
         info->default_value = 0;
         return true;
 
-    case PARAM_MIX:
-        info->id = PARAM_MIX;
+    case PARAM_WIDE:
+        info->id = PARAM_WIDE;
         info->flags = CLAP_PARAM_IS_AUTOMATABLE;
-        strncpy(info->name, "Mix", CLAP_NAME_SIZE);
+        strncpy(info->name, "Wide", CLAP_NAME_SIZE);
         info->module[0] = '\0';
         info->min_value = 0.0;
         info->max_value = 1.0;
-        info->default_value = 1.0;
+        info->default_value = 0.5;
         return true;
 
     case PARAM_SPEED:
@@ -70,7 +70,7 @@ static bool params_get_value(const clap_plugin_t *plugin, clap_id param_id, doub
     switch (param_id) {
     case PARAM_KEY:   *value = p->param_key.load();   return true;
     case PARAM_SCALE: *value = p->param_scale.load(); return true;
-    case PARAM_MIX:   *value = p->param_mix.load();   return true;
+    case PARAM_WIDE:  *value = p->param_wide.load();  return true;
     case PARAM_SPEED: *value = p->param_speed.load();  return true;
     default: return false;
     }
@@ -91,7 +91,7 @@ static bool params_value_to_text(const clap_plugin_t *, clap_id param_id, double
         snprintf(buf, buf_size, "%s", scale_names[idx]);
         return true;
     }
-    case PARAM_MIX:
+    case PARAM_WIDE:
         snprintf(buf, buf_size, "%.0f%%", value * 100.0);
         return true;
     case PARAM_SPEED:
@@ -121,7 +121,7 @@ static bool params_text_to_value(const clap_plugin_t *, clap_id param_id,
             }
         }
         return false;
-    case PARAM_MIX:
+    case PARAM_WIDE:
     case PARAM_SPEED: {
         double v;
         if (sscanf(text, "%lf", &v) == 1) {
@@ -150,7 +150,7 @@ static void params_flush(const clap_plugin_t *plugin,
             switch (ev->param_id) {
             case PARAM_KEY:   p->param_key.store(ev->value);   break;
             case PARAM_SCALE: p->param_scale.store(ev->value); break;
-            case PARAM_MIX:   p->param_mix.store(ev->value);   break;
+            case PARAM_WIDE:  p->param_wide.store(ev->value);   break;
             case PARAM_SPEED: p->param_speed.store(ev->value);  break;
             }
         }
@@ -174,7 +174,7 @@ static bool state_save(const clap_plugin_t *plugin, const clap_ostream_t *stream
     double values[PARAM_COUNT] = {
         p->param_key.load(),
         p->param_scale.load(),
-        p->param_mix.load(),
+        p->param_wide.load(),
         p->param_speed.load()
     };
     int64_t written = 0;
@@ -203,7 +203,7 @@ static bool state_load(const clap_plugin_t *plugin, const clap_istream_t *stream
     }
     p->param_key.store(values[PARAM_KEY]);
     p->param_scale.store(values[PARAM_SCALE]);
-    p->param_mix.store(values[PARAM_MIX]);
+    p->param_wide.store(values[PARAM_WIDE]);
     p->param_speed.store(values[PARAM_SPEED]);
     return true;
 }

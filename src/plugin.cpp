@@ -88,6 +88,8 @@ static bool plugin_activate(const clap_plugin_t *plugin, double sample_rate,
     for (int ch = 0; ch < 2; ++ch) {
         p->shifter[ch].grain_size = 512;
         p->shifter[ch].reset();
+        p->doubler[ch].grain_size = 512;
+        p->doubler[ch].reset();
     }
 
     p->mono_buf.resize(max_frames);
@@ -103,8 +105,10 @@ static void plugin_stop_processing(const clap_plugin_t *) {}
 
 static void plugin_reset(const clap_plugin_t *plugin) {
     auto *p = static_cast<SilvertunePlugin *>(plugin->plugin_data);
-    for (int ch = 0; ch < 2; ++ch)
+    for (int ch = 0; ch < 2; ++ch) {
         p->shifter[ch].reset();
+        p->doubler[ch].reset();
+    }
     p->yin.init(static_cast<float>(p->sample_rate));
     p->held_ratio = 1.0f;
 }
