@@ -1,0 +1,115 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g. v0.2.0)'
+        required: true
+        default: 'v0.2.0'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            artifact: silvertune-linux
+          - os: macos-latest
+            artifact: silvertune-macos
+          - os: windows-latest
+            artifact: silvertune-windows
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Linux deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build
+
+      - name: Install macOS deps
+        if: runner.os == 'macOS'
+        run: brew install cmake ninja
+
+      - name: Configure (Linux / macOS)
+        if: runner.os != 'Windows'
+        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Configure (Windows)
+        if: runner.os == 'Windows'
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --config Release
+
+      - name: Package Linux
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p dist
+          find build -name "Silvertune.clap" -exec cp -r {} dist/ \;
+          find build -name "Silvertune.vst3" -exec cp -r {} dist/ \;
+          cd dist && zip -r ../${{ matrix.artifact }}.zip .
+
+      - name: Package macOS
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p dist
+          find build -name "Silvertune.clap" -exec cp -r {} dist/ \;
+          find build -name "Silvertune.vst3" -exec cp -r {} dist/ \;
+          find build -name "Silvertune.component" -exec cp -r {} dist/ \;
+          cd dist && zip -r ../${{ matrix.artifact }}.zip .
+
+      - name: Package Windows
+        if: runner.os == 'Windows'
+        run: |
+          New-Item -ItemType Directory -Force -Path dist
+          Get-ChildItem -Recurse build -Filter "Silvertune.clap" | Copy-Item -Destination dist -Recurse -Force
+          Get-ChildItem -Recurse build -Filter "Silvertune.vst3" | Copy-Item -Destination dist -Recurse -Force
+          Compress-Archive -Path dist\* -DestinationPath ${{ matrix.artifact }}.zip
+        shell: pwsh
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}.zip
+
+  release:
+    needs: build
+    if: always()
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag }}
+          name: Silvertune ${{ github.event.inputs.tag }}
+          body: |
+            ## Silvertune Plugin
+
+            CLAP + VST3 autotune pitch correction plugin. macOS also includes AUv2.
+
+            Extract the zip and copy to your plugin folder:
+
+            **Linux** — `~/.clap/` or `~/.vst3/`
+            **macOS** — `~/Library/Audio/Plug-Ins/CLAP/` or `~/Library/Audio/Plug-Ins/VST3/`
+            **Windows** — `%APPDATA%\CLAP\` or `C:\Program Files\Common Files\VST3\`
+          files: |
+            artifacts/silvertune-linux/silvertune-linux.zip
+            artifacts/silvertune-macos/silvertune-macos.zip
+            artifacts/silvertune-windows/silvertune-windows.zip
+          fail_on_unmatched_files: false
