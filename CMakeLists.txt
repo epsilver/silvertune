@@ -1,9 +1,17 @@
 cmake_minimum_required(VERSION 3.21)
 project(silvertune VERSION 0.1.0 LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 17)
+# MSVC requires C++20 for designated initializers used in CLAP headers
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
+# AUv2 uses Objective-C++ — must be enabled before clap-wrapper configures
+if(APPLE)
+    enable_language(OBJCXX)
+    set(CMAKE_OBJCXX_STANDARD 20)
+    set(CMAKE_OBJCXX_STANDARD_REQUIRED ON)
+endif()
 
 # clap-wrapper (provides make_clapfirst_plugins, clap target, etc.)
 set(CLAP_SDK_ROOT ${CMAKE_SOURCE_DIR}/clap)
