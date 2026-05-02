@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(silvertune VERSION 0.1.0 LANGUAGES CXX)
+project(silvertune VERSION 0.1.1 LANGUAGES CXX)
 
 # MSVC requires C++20 for designated initializers used in CLAP headers
 set(CMAKE_CXX_STANDARD 20)
