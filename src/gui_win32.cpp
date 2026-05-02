@@ -5,7 +5,7 @@
 #define _USE_MATH_DEFINES
 #include <windows.h>
 #include "gui.h"
-#include "inter_fonts.h"
+#include "font_stb.h"
 #include "silvertune.h"
 #include <cmath>
 #include <cstdio>
@@ -40,28 +40,29 @@ static bool register_wnd_class() {
     return true;
 }
 
-// ---------------------------------------------------------------------------
-// Inter-Black font (loaded from embedded bytes)
-// ---------------------------------------------------------------------------
+// stb_truetype text via SetPixelV on the mem_dc
+struct Win32DrawCtx { HDC dc; COLORREF col; };
 
-static HANDLE s_font_handle = nullptr;
-static HFONT  s_font_sm     = nullptr;   // ~9pt equivalent (labels/values)
-static HFONT  s_font_lg     = nullptr;   // ~16pt equivalent (note name)
+static void win32_pixel_fn(int x, int y, uint8_t alpha, void *ud) {
+    if (alpha < 80) return;
+    auto *c = (Win32DrawCtx *)ud;
+    SetPixelV(c->dc, x, y, c->col);
+}
 
-static void ensure_inter_font() {
-    if (s_font_sm) return;
-    DWORD dummy;
-    s_font_handle = AddFontMemResourceEx(
-        (PVOID)INTER_BLACK_FONT, INTER_BLACK_FONT_LEN, nullptr, &dummy);
-    // "Inter" is the family name in the Inter-Black TTF
-    s_font_sm = CreateFontA(11, 0, 0, 0, FW_BLACK, FALSE, FALSE, FALSE,
-                             DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-                             CLEARTYPE_QUALITY, DEFAULT_PITCH, "Inter");
-    s_font_lg = CreateFontA(18, 0, 0, 0, FW_BLACK, FALSE, FALSE, FALSE,
-                             DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-                             CLEARTYPE_QUALITY, DEFAULT_PITCH, "Inter");
-    if (!s_font_sm) s_font_sm = (HFONT)GetStockObject(ANSI_VAR_FONT);
-    if (!s_font_lg) s_font_lg = (HFONT)GetStockObject(ANSI_VAR_FONT);
+static void draw_str_stb(HDC dc, int x, int y, const char *str,
+                         StbFont *font, COLORREF col) {
+    Win32DrawCtx ctx = {dc, col};
+    stb_font_draw(font, x, y, str, win32_pixel_fn, &ctx);
+}
+
+static void draw_str_c_stb(HDC dc, int cx, int y, const char *str,
+                            StbFont *font, COLORREF col) {
+    draw_str_stb(dc, cx - stb_font_width(font, str) / 2, y, str, font, col);
+}
+
+static void draw_str_r_stb(HDC dc, int x, int y, const char *str,
+                            StbFont *font, COLORREF col) {
+    draw_str_stb(dc, x - stb_font_width(font, str), y, str, font, col);
 }
 
 // ---------------------------------------------------------------------------
@@ -100,29 +101,6 @@ static void draw_line_dc(HDC dc, int x1, int y1, int x2, int y2, COLORREF col) {
     LineTo(dc, x2, y2);
     SelectObject(dc, old);
     DeleteObject(pen);
-}
-
-static void draw_text_dc(HDC dc, int x, int y, const char *text, HFONT font, COLORREF col,
-                          bool right_align = false) {
-    HFONT old = (HFONT)SelectObject(dc, font);
-    SetTextColor(dc, col);
-    SetBkMode(dc, TRANSPARENT);
-    if (right_align) {
-        SIZE sz = {};
-        GetTextExtentPoint32A(dc, text, (int)strlen(text), &sz);
-        x -= sz.cx;
-    }
-    TextOutA(dc, x, y, text, (int)strlen(text));
-    SelectObject(dc, old);
-}
-
-// Center text horizontally around cx
-static void draw_text_c_dc(HDC dc, int cx, int y, const char *text, HFONT font, COLORREF col) {
-    HFONT old = (HFONT)SelectObject(dc, font);
-    SIZE sz = {};
-    GetTextExtentPoint32A(dc, text, (int)strlen(text), &sz);
-    SelectObject(dc, old);
-    draw_text_dc(dc, cx - sz.cx / 2, y, text, font, col);
 }
 
 static void draw_left_triangle_dc(HDC dc, int bx, int by, COLORREF col) {
@@ -180,8 +158,6 @@ static void do_paint(HWND hwnd, HDC hdc) {
     SilvertunePlugin *p = reinterpret_cast<SilvertunePlugin *>(lp);
     if (!p) return;
 
-    ensure_inter_font();
-
     // Double buffer
     HDC mem_dc = CreateCompatibleDC(hdc);
     HBITMAP mem_bmp = CreateCompatibleBitmap(hdc, GUI_W, GUI_H);
@@ -204,8 +180,8 @@ static void do_paint(HWND hwnd, HDC hdc) {
     // -----------------------------------------------------------------------
     // Header bar
     // -----------------------------------------------------------------------
-    draw_text_dc(mem_dc, 8, 3, "SILVERTUNE", s_font_lg, col_accent);
-    draw_text_dc(mem_dc, GUI_W - 8, 7, "VERTICAL RECTANGLE", s_font_sm, col_label, /*right_align=*/true);
+    draw_str_stb(mem_dc, 8, 4, "SILVERTUNE", font_md(), col_accent);
+    draw_str_r_stb(mem_dc, GUI_W - 8, 6, "VERTICAL RECTANGLE", font_sm(), col_label);
     draw_line_dc(mem_dc, 0, HDR_H, GUI_W, HDR_H, col_hdr_sep);
 
     // -----------------------------------------------------------------------
@@ -224,7 +200,7 @@ static void do_paint(HWND hwnd, HDC hdc) {
         static const int WK[7] = { 0, 2, 4, 5, 7, 9, 11 };
         struct BkDef { int note, dx; };
         static const BkDef BK[5] = {
-            {1, 17}, {3, 41}, {6, 89}, {8, 113}, {10, 137}
+            {1, 19}, {3, 45}, {6, 97}, {8, 123}, {10, 149}
         };
         int hi = (corr >= 0) ? corr % 12 : -1;
 
@@ -321,7 +297,7 @@ static void do_paint(HWND hwnd, HDC hdc) {
         const char *corr_str = (corr >= 0) ? NOTE_NAMES[corr % 12] : "--";
         bool in_tune = active && std::fabs(dc) < 5.0f;
         COLORREF nc = in_tune ? col_accent : col_white;
-        draw_text_c_dc(mem_dc, ARC_PCX, ARC_PCY + 14, corr_str, s_font_lg, nc);
+        draw_str_c_stb(mem_dc, ARC_PCX, ARC_PCY + 14, corr_str, font_lg(), nc);
     }
 
     // Cents value below note name, small font
@@ -335,7 +311,7 @@ static void do_paint(HWND hwnd, HDC hdc) {
         }
         bool in_tune = active && std::fabs(dc) < 5.0f;
         COLORREF cc = in_tune ? col_accent : col_label;
-        draw_text_c_dc(mem_dc, ARC_PCX, ARC_PCY + 36, cbuf, s_font_sm, cc);
+        draw_str_c_stb(mem_dc, ARC_PCX, ARC_PCY + 36, cbuf, font_sm(), cc);
     }
 
     // -----------------------------------------------------------------------
@@ -347,26 +323,26 @@ static void do_paint(HWND hwnd, HDC hdc) {
     // -----------------------------------------------------------------------
     // KEY stepper
     // -----------------------------------------------------------------------
-    draw_text_dc(mem_dc, KEY_LABEL_X, KEY_LABEL_Y, "KEY", s_font_sm, col_label);
+    draw_str_stb(mem_dc, KEY_LABEL_X, KEY_LABEL_Y, "KEY", font_sm(), col_label);
     draw_left_triangle_dc(mem_dc, KEY_LEFT_X, KEY_BTN_Y, col_label);
     draw_right_triangle_dc(mem_dc, KEY_RIGHT_X, KEY_BTN_Y, col_label);
     {
         int key = (int)std::lround(p->param_key.load());
         key = ((key % 12) + 12) % 12;
-        draw_text_dc(mem_dc, KEY_TEXT_X, KEY_BTN_Y, NOTE_NAMES[key], s_font_sm, col_white);
+        draw_str_stb(mem_dc, KEY_TEXT_X, KEY_BTN_Y, NOTE_NAMES[key], font_sm(), col_white);
     }
 
     // -----------------------------------------------------------------------
     // SCALE stepper
     // -----------------------------------------------------------------------
-    draw_text_dc(mem_dc, SCALE_LABEL_X, SCALE_LABEL_Y, "SCALE", s_font_sm, col_label);
+    draw_str_stb(mem_dc, SCALE_LABEL_X, SCALE_LABEL_Y, "SCALE", font_sm(), col_label);
     draw_left_triangle_dc(mem_dc, SCALE_LEFT_X, SCALE_BTN_Y, col_label);
     draw_right_triangle_dc(mem_dc, SCALE_RIGHT_X, SCALE_BTN_Y, col_label);
     {
         int ps = (int)std::lround(p->param_scale.load());
         ps = ps < 0 ? 0 : (ps > 2 ? 2 : ps);
         int gs = PARAM_TO_GUI_SCALE[ps];
-        draw_text_dc(mem_dc, SCALE_TEXT_X, SCALE_BTN_Y, SCALE_NAMES_GUI[gs], s_font_sm, col_white);
+        draw_str_stb(mem_dc, SCALE_TEXT_X, SCALE_BTN_Y, SCALE_NAMES_GUI[gs], font_sm(), col_white);
     }
 
     // Horizontal divider
@@ -379,9 +355,9 @@ static void do_paint(HWND hwnd, HDC hdc) {
         float wide = (float)p->param_wide.load();
         char pct[16];
         snprintf(pct, sizeof(pct), "%.0f%%", wide * 100.0f);
-        draw_text_dc(mem_dc, WIDE_LABEL_X, WIDE_LABEL_Y, "WIDE", s_font_sm, col_label);
+        draw_str_stb(mem_dc, WIDE_LABEL_X, WIDE_LABEL_Y, "WIDE", font_sm(), col_label);
         COLORREF pct_col = wide > 0.0f ? col_white : col_label;
-        draw_text_dc(mem_dc, WIDE_PCT_X, WIDE_PCT_Y, pct, s_font_sm, pct_col, /*right_align=*/true);
+        draw_str_r_stb(mem_dc, WIDE_PCT_X, WIDE_PCT_Y, pct, font_sm(), pct_col);
         fill_rect_dc(mem_dc, WIDE_TRACK_X, WIDE_TRACK_Y, WIDE_TRACK_W, WIDE_TRACK_H, col_track);
         int fw = slider_px(wide, WIDE_TRACK_X, WIDE_TRACK_W) - WIDE_TRACK_X;
         if (fw > 0) fill_rect_dc(mem_dc, WIDE_TRACK_X, WIDE_TRACK_Y, fw, WIDE_TRACK_H, col_fill);
@@ -397,9 +373,9 @@ static void do_paint(HWND hwnd, HDC hdc) {
         float tune = (float)p->param_speed.load();
         char pct[16];
         snprintf(pct, sizeof(pct), "%.0f%%", tune * 100.0f);
-        draw_text_dc(mem_dc, TUNE_LABEL_X, TUNE_LABEL_Y, "TUNE", s_font_sm, col_label);
+        draw_str_stb(mem_dc, TUNE_LABEL_X, TUNE_LABEL_Y, "TUNE", font_sm(), col_label);
         COLORREF pct_col = tune > 0.0f ? col_white : col_label;
-        draw_text_dc(mem_dc, TUNE_PCT_X, TUNE_PCT_Y, pct, s_font_sm, pct_col, /*right_align=*/true);
+        draw_str_r_stb(mem_dc, TUNE_PCT_X, TUNE_PCT_Y, pct, font_sm(), pct_col);
         fill_rect_dc(mem_dc, TUNE_TRACK_X, TUNE_TRACK_Y, TUNE_TRACK_W, TUNE_TRACK_H, col_track);
         int fw = slider_px(tune, TUNE_TRACK_X, TUNE_TRACK_W) - TUNE_TRACK_X;
         if (fw > 0) fill_rect_dc(mem_dc, TUNE_TRACK_X, TUNE_TRACK_Y, fw, TUNE_TRACK_H, col_fill);
@@ -555,6 +531,7 @@ static LRESULT CALLBACK silvertune_wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPAR
 
 void gui_create(SilvertunePlugin *p) {
     register_wnd_class();
+    stb_fonts_init();
     p->gui.created = true;
 }
 

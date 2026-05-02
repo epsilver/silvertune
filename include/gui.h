@@ -9,75 +9,75 @@
 // Layout constants
 // ---------------------------------------------------------------------------
 
-static constexpr int GUI_W = 560;
-static constexpr int GUI_H = 240;
+static constexpr int GUI_W = 640;
+static constexpr int GUI_H = 300;
 
 // Header bar
 static constexpr int HDR_H = 24;
 
 // OLED display panel (left)
 static constexpr int DISP_X = 8;
-static constexpr int DISP_Y = 26;
-static constexpr int DISP_W = 185;
-static constexpr int DISP_H = 208;
+static constexpr int DISP_Y = 28;
+static constexpr int DISP_W = 200;
+static constexpr int DISP_H = 264;
 
 // Arc needle (within OLED)
-static constexpr int ARC_PCX = DISP_X + DISP_W / 2;   // = 100
-static constexpr int ARC_PCY = DISP_Y + DISP_H - 66;  // = 168
-static constexpr int ARC_R   = 70;
+static constexpr int ARC_PCX = DISP_X + DISP_W / 2;   // = 108
+static constexpr int ARC_PCY = DISP_Y + DISP_H - 80;  // = 212
+static constexpr int ARC_R   = 80;
 
 // Piano keyboard (within OLED)
-static constexpr int PIANO_KX       = DISP_X + 4;   // = 12
-static constexpr int PIANO_KY       = DISP_Y + 8;   // = 34
-static constexpr int PIANO_WK_W     = 24;
-static constexpr int PIANO_WK_H     = 20;
-static constexpr int PIANO_BK_W     = 14;
-static constexpr int PIANO_BK_H     = 12;
-static constexpr int PIANO_BK_OFFSET = 17; // px from white key left edge to black key
+static constexpr int PIANO_KX        = DISP_X + 4;   // = 12
+static constexpr int PIANO_KY        = DISP_Y + 8;   // = 36
+static constexpr int PIANO_WK_W      = 26;
+static constexpr int PIANO_WK_H      = 22;
+static constexpr int PIANO_BK_W      = 16;
+static constexpr int PIANO_BK_H      = 14;
+static constexpr int PIANO_BK_OFFSET = 19; // px from white key left edge to black key
 
 // Right control panel
-static constexpr int CTRL_X = DISP_X + DISP_W + 8;  // = 201
-static constexpr int CTRL_W = GUI_W - 8 - CTRL_X;   // = 351
+static constexpr int CTRL_X = DISP_X + DISP_W + 8;   // = 216
 
-// KEY stepper (left section of controls)
-static constexpr int KEY_LABEL_X  = 205;
-static constexpr int KEY_LABEL_Y  = 34;
-static constexpr int KEY_BTN_Y    = 64;   // below 34 + 24(scale=3 text) + 6
-static constexpr int KEY_LEFT_X   = 205;
-static constexpr int KEY_TEXT_X   = 227;   // KEY_LEFT_X + 16(arrow) + 6(gap)
-static constexpr int KEY_RIGHT_X  = 275;   // KEY_TEXT_X + 42(max "A#" @scale=3) + 6
+// KEY stepper
+// Positions sized for Inter-Black 14px: "A#" ~20px, "Chromatic" ~70px
+static constexpr int KEY_LABEL_X  = 224;
+static constexpr int KEY_LABEL_Y  = 36;
+static constexpr int KEY_BTN_Y    = 58;   // label_y + ~14px text + 8 gap
+static constexpr int KEY_LEFT_X   = 224;
+static constexpr int KEY_TEXT_X   = 246;   // KEY_LEFT_X + 16(arrow) + 6(gap)
+static constexpr int KEY_RIGHT_X  = 290;   // KEY_TEXT_X + ~30px (A# + margin) + 14
 
-// SCALE stepper (right section of controls)
-static constexpr int SCALE_LABEL_X = 317;
-static constexpr int SCALE_LABEL_Y = 34;
-static constexpr int SCALE_BTN_Y   = 64;
-static constexpr int SCALE_LEFT_X  = 317;
-static constexpr int SCALE_TEXT_X  = 339;   // SCALE_LEFT_X + 16 + 6
-static constexpr int SCALE_RIGHT_X = 534;   // SCALE_TEXT_X + "Chromatic"(189px @scale=3) + 6
+// SCALE stepper
+static constexpr int SCALE_LABEL_X = 380;
+static constexpr int SCALE_LABEL_Y = 36;
+static constexpr int SCALE_BTN_Y   = 58;
+static constexpr int SCALE_LEFT_X  = 380;
+static constexpr int SCALE_TEXT_X  = 402;   // SCALE_LEFT_X + 16 + 6
+static constexpr int SCALE_RIGHT_X = 550;   // SCALE_TEXT_X + ~132px ("Chromatic" + margin) + 16
 
 // Stepper button size
 static constexpr int STEPPER_BTN_W = 16;
 static constexpr int STEPPER_BTN_H = 16;
 
 // WIDE slider
-static constexpr int WIDE_LABEL_X  = 205;
-static constexpr int WIDE_LABEL_Y  = 96;
-static constexpr int WIDE_PCT_X    = GUI_W - 8;   // = 552
-static constexpr int WIDE_PCT_Y    = 96;
-static constexpr int WIDE_TRACK_X  = 205;
-static constexpr int WIDE_TRACK_Y  = 124;   // label bottom (96+24) + 4
-static constexpr int WIDE_TRACK_W  = GUI_W - 8 - 205;  // = 347
+static constexpr int WIDE_LABEL_X  = 224;
+static constexpr int WIDE_LABEL_Y  = 106;
+static constexpr int WIDE_PCT_X    = GUI_W - 8;   // = 632
+static constexpr int WIDE_PCT_Y    = 106;
+static constexpr int WIDE_TRACK_X  = 224;
+static constexpr int WIDE_TRACK_Y  = 126;
+static constexpr int WIDE_TRACK_W  = GUI_W - 8 - 224;  // = 408
 static constexpr int WIDE_TRACK_H  = 3;
-static constexpr int SLIDER_THUMB_R = 7;
+static constexpr int SLIDER_THUMB_R = 8;
 
 // TUNE slider
-static constexpr int TUNE_LABEL_X  = 205;
-static constexpr int TUNE_LABEL_Y  = 164;
-static constexpr int TUNE_PCT_X    = GUI_W - 8;   // = 552
-static constexpr int TUNE_PCT_Y    = 164;
-static constexpr int TUNE_TRACK_X  = 205;
-static constexpr int TUNE_TRACK_Y  = 192;   // label bottom (164+24) + 4
-static constexpr int TUNE_TRACK_W  = GUI_W - 8 - 205;  // = 347
+static constexpr int TUNE_LABEL_X  = 224;
+static constexpr int TUNE_LABEL_Y  = 204;
+static constexpr int TUNE_PCT_X    = GUI_W - 8;   // = 632
+static constexpr int TUNE_PCT_Y    = 204;
+static constexpr int TUNE_TRACK_X  = 224;
+static constexpr int TUNE_TRACK_Y  = 224;
+static constexpr int TUNE_TRACK_W  = GUI_W - 8 - 224;  // = 408
 static constexpr int TUNE_TRACK_H  = 3;
 
 // ---------------------------------------------------------------------------
@@ -108,17 +108,12 @@ static const char *const NOTE_NAMES[12] = {
     "F#", "G", "G#", "A", "A#", "B"
 };
 
-// Scale order in GUI: 0=Chromatic, 1=Major, 2=Minor
 static const char *const SCALE_NAMES_GUI[3] = {
     "Chromatic", "Major", "Minor"
 };
 
-// Map GUI scale index -> plugin ScaleType value stored in param_scale
-// GUI: 0=Chromatic -> plugin SCALE_CHROMATIC=2
-// GUI: 1=Major     -> plugin SCALE_MAJOR=0
-// GUI: 2=Minor     -> plugin SCALE_MINOR=1
 static constexpr int GUI_SCALE_TO_PARAM[3] = { 2, 0, 1 };
-static constexpr int PARAM_TO_GUI_SCALE[3] = { 1, 2, 0 }; // Major->1, Minor->2, Chromatic->0
+static constexpr int PARAM_TO_GUI_SCALE[3] = { 1, 2, 0 };
 
 static inline const char *note_str(int midi_note) {
     if (midi_note < 0) return "--";
@@ -129,14 +124,12 @@ static inline const char *note_str(int midi_note) {
 // Slider helpers
 // ---------------------------------------------------------------------------
 
-// Convert slider value [0,1] to pixel x position within track
 static inline int slider_px(float val, int track_x, int track_w) {
     if (val < 0.0f) val = 0.0f;
     if (val > 1.0f) val = 1.0f;
     return track_x + (int)(val * (float)(track_w));
 }
 
-// Convert pixel x within track to slider value [0,1]
 static inline float slider_val(int px, int track_x, int track_w) {
     float v = (float)(px - track_x) / (float)(track_w);
     if (v < 0.0f) v = 0.0f;
@@ -177,16 +170,14 @@ static inline bool hit_tune_track(int mx, int my) {
 }
 
 // Returns semitone 0-11 if the click lands on a piano key, -1 otherwise.
-// Black keys take priority (they visually sit on top of white keys).
 static inline int hit_piano_key(int mx, int my) {
     if (!hit_rect(mx, my, PIANO_KX, PIANO_KY, PIANO_WK_W * 7, PIANO_WK_H + 1))
         return -1;
     struct BkDef { int note, dx; };
     static const BkDef BK[5] = {
-        {1, 17}, {3, 41}, {6, 89}, {8, 113}, {10, 137}
+        {1, 19}, {3, 45}, {6, 97}, {8, 123}, {10, 149}
     };
     static const int WK[7] = { 0, 2, 4, 5, 7, 9, 11 };
-    // Black keys only occupy the top portion
     if (my < PIANO_KY + PIANO_BK_H) {
         for (int i = 0; i < 5; ++i) {
             if (hit_rect(mx, my, PIANO_KX + BK[i].dx, PIANO_KY, PIANO_BK_W, PIANO_BK_H))
@@ -203,7 +194,7 @@ static inline int hit_piano_key(int mx, int my) {
 
 struct GuiState {
     bool  created    = false;
-    void *handle     = nullptr;   // platform window handle
+    void *handle     = nullptr;
     double dpi_scale = 1.0;
 
     // Drag state
@@ -215,7 +206,7 @@ struct GuiState {
     // Needle animation state (GUI thread only)
     float    disp_cents     = 0.0f;
     uint32_t last_det_frame = 0;
-    int      snap_cooldown  = 0;   // frames to skip before next snap
+    int      snap_cooldown  = 0;
 };
 
 // ---------------------------------------------------------------------------

@@ -25,10 +25,12 @@ add_library(silvertune-impl STATIC
     src/parameters.cpp
     src/scale.cpp
     src/yin.cpp
+    src/font_stb.cpp
+    src/font_stb_embed.cpp
 )
 
 if(WIN32)
-    target_sources(silvertune-impl PRIVATE src/gui_win32.cpp src/inter_black.cpp)
+    target_sources(silvertune-impl PRIVATE src/gui_win32.cpp)
 elseif(APPLE)
     target_sources(silvertune-impl PRIVATE src/gui_cocoa.mm)
     target_link_libraries(silvertune-impl PUBLIC

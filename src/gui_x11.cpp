@@ -1,7 +1,7 @@
 #if !defined(_WIN32) && !defined(__APPLE__)
 
 #include "gui.h"
-#include "font6x8.h"
+#include "font_stb.h"
 #include "silvertune.h"
 
 #include <X11/Xlib.h>
@@ -25,11 +25,9 @@ struct X11Data {
     Pixmap          buf       = 0;
     bool            running   = false;
     pthread_t       thread;
-    unsigned long   colors[11] = {};   // indexed by enum below
+    unsigned long   colors[11] = {};
     SilvertunePlugin *plugin  = nullptr;
-
-    // Pipe for wakeup/stop signalling
-    int wake_fd[2] = {-1, -1};
+    int             wake_fd[2] = {-1, -1};
 };
 
 enum ColorIdx {
@@ -50,7 +48,6 @@ static unsigned long alloc_color(Display *dpy, int screen, uint8_t r, uint8_t g,
     Colormap cmap = DefaultColormap(dpy, screen);
     if (XAllocColor(dpy, cmap, &xc))
         return xc.pixel;
-    // Fallback: find nearest
     return BlackPixel(dpy, screen);
 }
 
@@ -82,7 +79,6 @@ static void fill_circle(X11Data *d, Drawable drw, int cx, int cy, int r, int cid
     XFillArc(d->dpy, drw, d->gc, cx - r, cy - r, (unsigned)(r * 2), (unsigned)(r * 2), 0, 360 * 64);
 }
 
-// Draw a small left-pointing triangle (< button)
 static void draw_left_triangle(X11Data *d, Drawable drw, int bx, int by, int cidx) {
     XPoint pts[3];
     pts[0].x = bx + STEPPER_BTN_W - 3;  pts[0].y = by + 3;
@@ -101,87 +97,85 @@ static void draw_right_triangle(X11Data *d, Drawable drw, int bx, int by, int ci
     XFillPolygon(d->dpy, drw, d->gc, pts, 3, Convex, CoordModeOrigin);
 }
 
-// Pixel font text — scale=1 gives 6x8, scale=2 gives 12x16, etc.
-static void draw_str(X11Data *d, Drawable drw, int x, int y,
-                     const char *str, int scale, int cidx) {
-    XSetForeground(d->dpy, d->gc, d->colors[cidx]);
-    int cx = x;
-    while (*str) {
-        unsigned char ch = (unsigned char)*str++;
-        if (ch < 32 || ch > 126) ch = '?';
-        const uint8_t *g = FONT6X8[ch - 32];
-        for (int row = 0; row < FONT6X8_H; ++row) {
-            uint8_t bits = g[row];
-            if (!bits) continue;
-            for (int col = 0; col < FONT6X8_W; ++col) {
-                if (bits & (0x20 >> col)) {
-                    if (scale == 1)
-                        XDrawPoint(d->dpy, drw, d->gc, cx + col, y + row);
-                    else
-                        XFillRectangle(d->dpy, drw, d->gc,
-                                       cx + col*scale, y + row*scale, scale, scale);
-                }
-            }
+// ---------------------------------------------------------------------------
+// stb_truetype text rendering via XDrawPoints batch
+// ---------------------------------------------------------------------------
+
+struct X11DrawCtx {
+    X11Data  *d;
+    Drawable  drw;
+    // Pixel batch
+    XPoint   pts[4096];
+    int      npts = 0;
+    void flush() {
+        if (npts > 0) {
+            XDrawPoints(d->dpy, drw, d->gc, pts, npts, CoordModeOrigin);
+            npts = 0;
         }
-        cx += FONT6X8_ADV * scale;
     }
+};
+
+static void x11_pixel_fn(int x, int y, uint8_t alpha, void *ud) {
+    if (alpha < 80) return;
+    auto *ctx = (X11DrawCtx *)ud;
+    ctx->pts[ctx->npts++] = { (short)x, (short)y };
+    if (ctx->npts == 4096) ctx->flush();
+}
+
+static void draw_str(X11Data *d, Drawable drw, int x, int y,
+                     const char *str, StbFont *font, int cidx) {
+    set_color(d, cidx);
+    X11DrawCtx ctx;
+    ctx.d = d; ctx.drw = drw; ctx.npts = 0;
+    stb_font_draw(font, x, y, str, x11_pixel_fn, &ctx);
+    ctx.flush();
 }
 
 static void draw_str_c(X11Data *d, Drawable drw, int cx, int y,
-                       const char *str, int scale, int cidx) {
-    draw_str(d, drw, cx - font6x8_width(str, scale)/2, y, str, scale, cidx);
+                       const char *str, StbFont *font, int cidx) {
+    draw_str(d, drw, cx - stb_font_width(font, str) / 2, y, str, font, cidx);
 }
 
-// Right-align string so its right edge is at x
 static void draw_str_r(X11Data *d, Drawable drw, int x, int y,
-                       const char *str, int scale, int cidx) {
-    draw_str(d, drw, x - font6x8_width(str, scale), y, str, scale, cidx);
+                       const char *str, StbFont *font, int cidx) {
+    draw_str(d, drw, x - stb_font_width(font, str), y, str, font, cidx);
 }
 
 // ---------------------------------------------------------------------------
-// Main draw function — draws to the double-buffer Pixmap then copies to win
+// Main draw function
 // ---------------------------------------------------------------------------
 
 static void do_draw(X11Data *d) {
     SilvertunePlugin *p = d->plugin;
     Pixmap buf = d->buf;
 
-    // Background
     fill_rect(d, buf, 0, 0, GUI_W, GUI_H, C_BG);
 
     // -----------------------------------------------------------------------
-    // Header bar (y=0 to HDR_H=20)
+    // Header bar
     // -----------------------------------------------------------------------
-    {
-        draw_str(d, buf, 8, 3, "SILVERTUNE", 2, C_ACCENT);
-        draw_str_r(d, buf, GUI_W - 8, 5, "VERTICAL RECTANGLE", 2, C_LABEL);
-
-        // Separator line at y=HDR_H
-        draw_line(d, buf, 0, HDR_H, GUI_W, HDR_H, C_HDR_SEP);
-    }
+    draw_str(d, buf, 8, 4, "SILVERTUNE", font_md(), C_ACCENT);
+    draw_str_r(d, buf, GUI_W - 8, 6, "VERTICAL RECTANGLE", font_sm(), C_LABEL);
+    draw_line(d, buf, 0, HDR_H, GUI_W, HDR_H, C_HDR_SEP);
 
     // -----------------------------------------------------------------------
-    // OLED display panel (DISP_X, DISP_Y, DISP_W, DISP_H)
+    // OLED display panel
     // -----------------------------------------------------------------------
     draw_rect(d, buf, DISP_X, DISP_Y, DISP_W, DISP_H, C_DIM);
     fill_rect(d, buf, DISP_X + 1, DISP_Y + 1, DISP_W - 2, DISP_H - 2, C_DISPLAY_BG);
 
-    // Read pitch state (shared by piano, needle, and note display)
     float dmidi  = p->gui_det_midi.load(std::memory_order_relaxed);
     int   corr   = p->gui_corr.load(std::memory_order_relaxed);
     bool  active = (corr >= 0 && dmidi >= 0.0f);
 
-    // -----------------------------------------------------------------------
     // Piano keyboard
-    // -----------------------------------------------------------------------
     {
         static const int WK[7] = { 0, 2, 4, 5, 7, 9, 11 };
         struct BkDef { int note, dx; };
         static const BkDef BK[5] = {
-            {1, 17}, {3, 41}, {6, 89}, {8, 113}, {10, 137}
+            {1, 19}, {3, 45}, {6, 97}, {8, 123}, {10, 149}
         };
         int hi = (corr >= 0) ? corr % 12 : -1;
-
         for (int i = 0; i < 7; ++i) {
             int x   = PIANO_KX + i * PIANO_WK_W;
             bool lit = (WK[i] == hi);
@@ -197,9 +191,7 @@ static void do_draw(X11Data *d) {
         }
     }
 
-    // -----------------------------------------------------------------------
     // Needle animation
-    // -----------------------------------------------------------------------
     {
         uint32_t frame = p->gui_det_frame.load(std::memory_order_relaxed);
         if (!active) {
@@ -219,7 +211,7 @@ static void do_draw(X11Data *d) {
     }
     float dc = p->gui.disp_cents;
 
-    // Arc: 48-segment semicircle in COL_DIM
+    // Arc
     for (int i = 0; i < 48; ++i) {
         double a0 = (double)i       * M_PI / 48.0;
         double a1 = (double)(i + 1) * M_PI / 48.0;
@@ -230,42 +222,42 @@ static void do_draw(X11Data *d) {
         draw_line(d, buf, x0, y0, x1, y1, C_DIM);
     }
 
-    // Tick marks at 0, ±25, ±50 cents
+    // Tick marks
     {
         struct { int cv; int len; } ticks[] = {
-            {0, 12}, {-25, 7}, {25, 7}, {-50, 5}, {50, 5}
+            {0, 14}, {-25, 8}, {25, 8}, {-50, 6}, {50, 6}
         };
         for (auto &tk : ticks) {
             double a  = (90.0 - tk.cv * 90.0 / 50.0) * M_PI / 180.0;
             double ca = std::cos(a), sa = std::sin(a);
             int ix = ARC_PCX + (int)((ARC_R - tk.len) * ca);
             int iy = ARC_PCY - (int)((ARC_R - tk.len) * sa);
-            int ox = ARC_PCX + (int)((ARC_R + 3)      * ca);
-            int oy = ARC_PCY - (int)((ARC_R + 3)      * sa);
+            int ox = ARC_PCX + (int)((ARC_R + 4)      * ca);
+            int oy = ARC_PCY - (int)((ARC_R + 4)      * sa);
             draw_line(d, buf, ix, iy, ox, oy, tk.cv == 0 ? C_DIM : C_LABEL);
         }
     }
 
-    // Needle from pivot to arc, smoothed
+    // Needle
     {
         double a  = (90.0 - (double)dc * 90.0 / 50.0) * M_PI / 180.0;
-        int nx    = ARC_PCX + (int)((ARC_R - 5) * std::cos(a));
-        int ny    = ARC_PCY - (int)((ARC_R - 5) * std::sin(a));
+        int nx    = ARC_PCX + (int)((ARC_R - 6) * std::cos(a));
+        int ny    = ARC_PCY - (int)((ARC_R - 6) * std::sin(a));
         int ncol  = active ? (std::fabs(dc) < 5.0f ? C_ACCENT : C_WHITE) : C_LABEL;
         draw_line(d, buf, ARC_PCX, ARC_PCY, nx, ny, ncol);
-        fill_circle(d, buf, nx,      ny,      2, ncol);
-        fill_circle(d, buf, ARC_PCX, ARC_PCY, 2, C_DIM);
+        fill_circle(d, buf, nx,      ny,      3, ncol);
+        fill_circle(d, buf, ARC_PCX, ARC_PCY, 3, C_DIM);
     }
 
-    // Corrected note name below arc pivot at ARC_PCY + 14, scale=3
+    // Note name (large, centered under pivot)
     {
         const char *corr_str = (corr >= 0) ? NOTE_NAMES[corr % 12] : "--";
         bool in_tune = active && std::fabs(dc) < 5.0f;
-        draw_str_c(d, buf, ARC_PCX, ARC_PCY + 14, corr_str, 3,
+        draw_str_c(d, buf, ARC_PCX, ARC_PCY + 16, corr_str, font_lg(),
                    in_tune ? C_ACCENT : C_WHITE);
     }
 
-    // Cents value below note name
+    // Cents value
     {
         char cbuf[16];
         if (active) {
@@ -275,8 +267,9 @@ static void do_draw(X11Data *d) {
             snprintf(cbuf, sizeof(cbuf), "--");
         }
         bool in_tune = active && std::fabs(dc) < 5.0f;
-        draw_str_c(d, buf, ARC_PCX, ARC_PCY + 14 + 3 * FONT6X8_H + 4,
-                   cbuf, 2, in_tune ? C_ACCENT : C_WHITE);
+        int cy = ARC_PCY + 16 + stb_font_height(font_lg()) + 4;
+        draw_str_c(d, buf, ARC_PCX, cy, cbuf, font_sm(),
+                   in_tune ? C_ACCENT : C_WHITE);
     }
 
     // -----------------------------------------------------------------------
@@ -288,49 +281,44 @@ static void do_draw(X11Data *d) {
     // -----------------------------------------------------------------------
     // KEY stepper
     // -----------------------------------------------------------------------
-    draw_str(d, buf, KEY_LABEL_X, KEY_LABEL_Y, "KEY", 3, C_WHITE);
+    draw_str(d, buf, KEY_LABEL_X, KEY_LABEL_Y, "KEY", font_md(), C_WHITE);
     draw_left_triangle(d, buf, KEY_LEFT_X, KEY_BTN_Y, C_WHITE);
     draw_right_triangle(d, buf, KEY_RIGHT_X, KEY_BTN_Y, C_WHITE);
     {
         int key = (int)std::lround(p->param_key.load());
         key = ((key % 12) + 12) % 12;
-        draw_str(d, buf, KEY_TEXT_X, KEY_BTN_Y, NOTE_NAMES[key], 3, C_ACCENT);
+        draw_str(d, buf, KEY_TEXT_X, KEY_BTN_Y, NOTE_NAMES[key], font_md(), C_ACCENT);
     }
 
     // -----------------------------------------------------------------------
     // SCALE stepper
     // -----------------------------------------------------------------------
-    draw_str(d, buf, SCALE_LABEL_X, SCALE_LABEL_Y, "SCALE", 3, C_WHITE);
+    draw_str(d, buf, SCALE_LABEL_X, SCALE_LABEL_Y, "SCALE", font_md(), C_WHITE);
     draw_left_triangle(d, buf, SCALE_LEFT_X, SCALE_BTN_Y, C_WHITE);
     draw_right_triangle(d, buf, SCALE_RIGHT_X, SCALE_BTN_Y, C_WHITE);
     {
-        int param_scale = (int)std::lround(p->param_scale.load());
-        int gui_scale = PARAM_TO_GUI_SCALE[param_scale < 0 ? 0 : (param_scale > 2 ? 2 : param_scale)];
-        draw_str(d, buf, SCALE_TEXT_X, SCALE_BTN_Y, SCALE_NAMES_GUI[gui_scale], 3, C_ACCENT);
+        int ps = (int)std::lround(p->param_scale.load());
+        ps = ps < 0 ? 0 : (ps > 2 ? 2 : ps);
+        int gs = PARAM_TO_GUI_SCALE[ps];
+        draw_str(d, buf, SCALE_TEXT_X, SCALE_BTN_Y, SCALE_NAMES_GUI[gs], font_md(), C_ACCENT);
     }
 
-    // Horizontal divider between steppers and sliders
-    draw_line(d, buf, CTRL_X, KEY_BTN_Y + 24,
-              GUI_W - 8, KEY_BTN_Y + 24, C_HDR_SEP);
+    draw_line(d, buf, CTRL_X, KEY_BTN_Y + 22, GUI_W - 8, KEY_BTN_Y + 22, C_HDR_SEP);
 
     // -----------------------------------------------------------------------
     // WIDE slider
     // -----------------------------------------------------------------------
     {
         float wide = (float)p->param_wide.load();
-        char pct_str[16];
-        snprintf(pct_str, sizeof(pct_str), "%.0f%%", wide * 100.0f);
-
-        draw_str(d, buf, WIDE_LABEL_X, WIDE_LABEL_Y, "WIDE", 3, C_WHITE);
-        draw_str_r(d, buf, WIDE_PCT_X, WIDE_PCT_Y, pct_str, 3, C_WHITE);
-
+        char pct[16];
+        snprintf(pct, sizeof(pct), "%.0f%%", wide * 100.0f);
+        draw_str(d, buf, WIDE_LABEL_X, WIDE_LABEL_Y, "WIDE", font_md(), C_WHITE);
+        draw_str_r(d, buf, WIDE_PCT_X, WIDE_PCT_Y, pct, font_md(), C_WHITE);
         fill_rect(d, buf, WIDE_TRACK_X, WIDE_TRACK_Y, WIDE_TRACK_W, WIDE_TRACK_H, C_TRACK);
-        int fill_w = slider_px(wide, WIDE_TRACK_X, WIDE_TRACK_W) - WIDE_TRACK_X;
-        if (fill_w > 0)
-            fill_rect(d, buf, WIDE_TRACK_X, WIDE_TRACK_Y, fill_w, WIDE_TRACK_H, C_FILL);
-        int thumb_x = slider_px(wide, WIDE_TRACK_X, WIDE_TRACK_W);
-        int thumb_y = WIDE_TRACK_Y + WIDE_TRACK_H / 2;
-        fill_circle(d, buf, thumb_x, thumb_y, SLIDER_THUMB_R, C_THUMB);
+        int fw = slider_px(wide, WIDE_TRACK_X, WIDE_TRACK_W) - WIDE_TRACK_X;
+        if (fw > 0) fill_rect(d, buf, WIDE_TRACK_X, WIDE_TRACK_Y, fw, WIDE_TRACK_H, C_FILL);
+        int tx = slider_px(wide, WIDE_TRACK_X, WIDE_TRACK_W);
+        fill_circle(d, buf, tx, WIDE_TRACK_Y + WIDE_TRACK_H / 2, SLIDER_THUMB_R, C_THUMB);
     }
 
     // -----------------------------------------------------------------------
@@ -338,28 +326,23 @@ static void do_draw(X11Data *d) {
     // -----------------------------------------------------------------------
     {
         float tune = (float)p->param_speed.load();
-        char pct_str[16];
-        snprintf(pct_str, sizeof(pct_str), "%.0f%%", tune * 100.0f);
-
-        draw_str(d, buf, TUNE_LABEL_X, TUNE_LABEL_Y, "TUNE", 3, C_WHITE);
-        draw_str_r(d, buf, TUNE_PCT_X, TUNE_PCT_Y, pct_str, 3, C_WHITE);
-
+        char pct[16];
+        snprintf(pct, sizeof(pct), "%.0f%%", tune * 100.0f);
+        draw_str(d, buf, TUNE_LABEL_X, TUNE_LABEL_Y, "TUNE", font_md(), C_WHITE);
+        draw_str_r(d, buf, TUNE_PCT_X, TUNE_PCT_Y, pct, font_md(), C_WHITE);
         fill_rect(d, buf, TUNE_TRACK_X, TUNE_TRACK_Y, TUNE_TRACK_W, TUNE_TRACK_H, C_TRACK);
-        int fill_w = slider_px(tune, TUNE_TRACK_X, TUNE_TRACK_W) - TUNE_TRACK_X;
-        if (fill_w > 0)
-            fill_rect(d, buf, TUNE_TRACK_X, TUNE_TRACK_Y, fill_w, TUNE_TRACK_H, C_FILL);
-        int thumb_x = slider_px(tune, TUNE_TRACK_X, TUNE_TRACK_W);
-        int thumb_y = TUNE_TRACK_Y + TUNE_TRACK_H / 2;
-        fill_circle(d, buf, thumb_x, thumb_y, SLIDER_THUMB_R, C_THUMB);
+        int fw = slider_px(tune, TUNE_TRACK_X, TUNE_TRACK_W) - TUNE_TRACK_X;
+        if (fw > 0) fill_rect(d, buf, TUNE_TRACK_X, TUNE_TRACK_Y, fw, TUNE_TRACK_H, C_FILL);
+        int tx = slider_px(tune, TUNE_TRACK_X, TUNE_TRACK_W);
+        fill_circle(d, buf, tx, TUNE_TRACK_Y + TUNE_TRACK_H / 2, SLIDER_THUMB_R, C_THUMB);
     }
 
-    // Copy pixmap to window
     XCopyArea(d->dpy, d->buf, d->win, d->gc, 0, 0, GUI_W, GUI_H, 0, 0);
     XFlush(d->dpy);
 }
 
 // ---------------------------------------------------------------------------
-// Parameter change helper: store to atomic + request callback flush
+// Parameter change helper
 // ---------------------------------------------------------------------------
 
 static void set_param_and_notify(SilvertunePlugin *p, int param_id, double value) {
@@ -394,61 +377,47 @@ static void handle_button_press(X11Data *d, int mx, int my) {
         int k = (int)std::lround(p->param_key.load());
         k = ((k - 1) % 12 + 12) % 12;
         set_param_and_notify(p, PARAM_KEY, (double)k);
-        do_draw(d);
-        return;
+        do_draw(d); return;
     }
     if (hit_key_right(mx, my)) {
         int k = (int)std::lround(p->param_key.load());
         k = (k + 1) % 12;
         set_param_and_notify(p, PARAM_KEY, (double)k);
-        do_draw(d);
-        return;
+        do_draw(d); return;
     }
     if (hit_scale_left(mx, my)) {
         int s = PARAM_TO_GUI_SCALE[(int)std::lround(p->param_scale.load())];
         s = ((s - 1) % 3 + 3) % 3;
         set_param_and_notify(p, PARAM_SCALE, (double)GUI_SCALE_TO_PARAM[s]);
-        do_draw(d);
-        return;
+        do_draw(d); return;
     }
     if (hit_scale_right(mx, my)) {
         int s = PARAM_TO_GUI_SCALE[(int)std::lround(p->param_scale.load())];
         s = (s + 1) % 3;
         set_param_and_notify(p, PARAM_SCALE, (double)GUI_SCALE_TO_PARAM[s]);
-        do_draw(d);
-        return;
+        do_draw(d); return;
     }
     if (hit_wide_track(mx, my)) {
-        p->gui.drag_wide = true;
-        p->gui.drag_tune = false;
-        p->gui.drag_x0   = mx;
-        p->gui.drag_v0   = (float)p->param_wide.load();
-        float v = slider_val(mx, WIDE_TRACK_X, WIDE_TRACK_W);
-        set_param_and_notify(p, PARAM_WIDE, (double)v);
-        do_draw(d);
-        return;
+        p->gui.drag_wide = true; p->gui.drag_tune = false;
+        p->gui.drag_x0 = mx; p->gui.drag_v0 = (float)p->param_wide.load();
+        set_param_and_notify(p, PARAM_WIDE, (double)slider_val(mx, WIDE_TRACK_X, WIDE_TRACK_W));
+        do_draw(d); return;
     }
     if (hit_tune_track(mx, my)) {
-        p->gui.drag_tune = true;
-        p->gui.drag_wide = false;
-        p->gui.drag_x0   = mx;
-        p->gui.drag_v0   = (float)p->param_speed.load();
-        float v = slider_val(mx, TUNE_TRACK_X, TUNE_TRACK_W);
-        set_param_and_notify(p, PARAM_SPEED, (double)v);
-        do_draw(d);
-        return;
+        p->gui.drag_tune = true; p->gui.drag_wide = false;
+        p->gui.drag_x0 = mx; p->gui.drag_v0 = (float)p->param_speed.load();
+        set_param_and_notify(p, PARAM_SPEED, (double)slider_val(mx, TUNE_TRACK_X, TUNE_TRACK_W));
+        do_draw(d); return;
     }
 }
 
 static void handle_motion(X11Data *d, int mx) {
     SilvertunePlugin *p = d->plugin;
     if (p->gui.drag_wide) {
-        float v = slider_val(mx, WIDE_TRACK_X, WIDE_TRACK_W);
-        set_param_and_notify(p, PARAM_WIDE, (double)v);
+        set_param_and_notify(p, PARAM_WIDE, (double)slider_val(mx, WIDE_TRACK_X, WIDE_TRACK_W));
         do_draw(d);
     } else if (p->gui.drag_tune) {
-        float v = slider_val(mx, TUNE_TRACK_X, TUNE_TRACK_W);
-        set_param_and_notify(p, PARAM_SPEED, (double)v);
+        set_param_and_notify(p, PARAM_SPEED, (double)slider_val(mx, TUNE_TRACK_X, TUNE_TRACK_W));
         do_draw(d);
     }
 }
@@ -477,29 +446,23 @@ static void *x11_thread(void *arg) {
         int nfds = (x11_fd > wake_r ? x11_fd : wake_r) + 1;
 
         struct timeval tv;
-        tv.tv_sec  = 0;
-        tv.tv_usec = 33000; // ~30 fps timer
+        tv.tv_sec = 0; tv.tv_usec = 33000;
 
         int ret = select(nfds, &rfds, nullptr, nullptr, &tv);
-
         if (!d->running) break;
+        if (ret < 0)  break;
 
-        if (ret < 0) break;
-
-        // Drain wake pipe
         if (ret > 0 && FD_ISSET(wake_r, &rfds)) {
             char buf[64];
             (void)read(wake_r, buf, sizeof(buf));
         }
 
-        // Handle X11 events
         while (XPending(d->dpy)) {
             XEvent ev;
             XNextEvent(d->dpy, &ev);
             switch (ev.type) {
             case Expose:
-                if (ev.xexpose.count == 0)
-                    do_draw(d);
+                if (ev.xexpose.count == 0) do_draw(d);
                 break;
             case ButtonPress:
                 if (ev.xbutton.button == Button1)
@@ -509,20 +472,14 @@ static void *x11_thread(void *arg) {
                 handle_motion(d, ev.xmotion.x);
                 break;
             case ButtonRelease:
-                if (ev.xbutton.button == Button1)
-                    handle_button_release(d);
+                if (ev.xbutton.button == Button1) handle_button_release(d);
                 break;
-            default:
-                break;
+            default: break;
             }
         }
 
-        // Periodic redraw (~30fps on timeout)
-        if (ret == 0) {
-            do_draw(d);
-        }
+        if (ret == 0) do_draw(d);
     }
-
     return nullptr;
 }
 
@@ -531,6 +488,7 @@ static void *x11_thread(void *arg) {
 // ---------------------------------------------------------------------------
 
 void gui_create(SilvertunePlugin *p) {
+    stb_fonts_init();
     p->gui.created = true;
 }
 
@@ -542,11 +500,7 @@ bool gui_set_parent(SilvertunePlugin *p, void *native_parent) {
     p->gui.handle = d;
 
     d->dpy = XOpenDisplay(nullptr);
-    if (!d->dpy) {
-        delete d;
-        p->gui.handle = nullptr;
-        return false;
-    }
+    if (!d->dpy) { delete d; p->gui.handle = nullptr; return false; }
 
     int screen = DefaultScreen(d->dpy);
     Window parent_win = native_parent
@@ -558,21 +512,15 @@ bool gui_set_parent(SilvertunePlugin *p, void *native_parent) {
     wa.event_mask = ExposureMask | ButtonPressMask | ButtonReleaseMask |
                     PointerMotionMask | StructureNotifyMask;
 
-    d->win = XCreateWindow(
-        d->dpy, parent_win,
-        0, 0, GUI_W, GUI_H, 0,
-        DefaultDepth(d->dpy, screen),
-        InputOutput,
-        DefaultVisual(d->dpy, screen),
-        CWBackPixel | CWEventMask,
-        &wa
-    );
+    d->win = XCreateWindow(d->dpy, parent_win, 0, 0, GUI_W, GUI_H, 0,
+                            DefaultDepth(d->dpy, screen), InputOutput,
+                            DefaultVisual(d->dpy, screen),
+                            CWBackPixel | CWEventMask, &wa);
 
     d->gc  = XCreateGC(d->dpy, d->win, 0, nullptr);
     d->buf = XCreatePixmap(d->dpy, d->win, GUI_W, GUI_H,
                             DefaultDepth(d->dpy, screen));
 
-    // Alloc colors
     d->colors[C_BG]         = alloc_color(d->dpy, screen, COL_BG.r,         COL_BG.g,         COL_BG.b);
     d->colors[C_DISPLAY_BG] = alloc_color(d->dpy, screen, COL_DISPLAY_BG.r, COL_DISPLAY_BG.g, COL_DISPLAY_BG.b);
     d->colors[C_ACCENT]     = alloc_color(d->dpy, screen, COL_ACCENT.r,     COL_ACCENT.g,     COL_ACCENT.b);
@@ -586,32 +534,24 @@ bool gui_set_parent(SilvertunePlugin *p, void *native_parent) {
 
     XMapWindow(d->dpy, d->win);
     XFlush(d->dpy);
-
-    // Wake pipe
     pipe(d->wake_fd);
-
     d->running = true;
     pthread_create(&d->thread, nullptr, x11_thread, d);
-
     return true;
 }
 
-void gui_set_scale(SilvertunePlugin *p, double scale) {
-    p->gui.dpi_scale = scale;
-}
+void gui_set_scale(SilvertunePlugin *p, double scale) { p->gui.dpi_scale = scale; }
 
 void gui_show(SilvertunePlugin *p) {
     auto *d = static_cast<X11Data *>(p->gui.handle);
     if (!d) return;
-    XMapWindow(d->dpy, d->win);
-    XFlush(d->dpy);
+    XMapWindow(d->dpy, d->win); XFlush(d->dpy);
 }
 
 void gui_hide(SilvertunePlugin *p) {
     auto *d = static_cast<X11Data *>(p->gui.handle);
     if (!d) return;
-    XUnmapWindow(d->dpy, d->win);
-    XFlush(d->dpy);
+    XUnmapWindow(d->dpy, d->win); XFlush(d->dpy);
 }
 
 void gui_destroy(SilvertunePlugin *p) {
@@ -622,15 +562,10 @@ void gui_destroy(SilvertunePlugin *p) {
     p->gui.handle = nullptr;
     if (!d) return;
 
-    // Signal thread to stop
     d->running = false;
-    if (d->wake_fd[1] >= 0) {
-        char c = 0;
-        (void)write(d->wake_fd[1], &c, 1);
-    }
+    if (d->wake_fd[1] >= 0) { char c = 0; (void)write(d->wake_fd[1], &c, 1); }
     pthread_join(d->thread, nullptr);
 
-    // Close pipe
     if (d->wake_fd[0] >= 0) close(d->wake_fd[0]);
     if (d->wake_fd[1] >= 0) close(d->wake_fd[1]);
 
@@ -638,7 +573,6 @@ void gui_destroy(SilvertunePlugin *p) {
     XFreeGC(d->dpy, d->gc);
     XDestroyWindow(d->dpy, d->win);
     XCloseDisplay(d->dpy);
-
     delete d;
 }
 
