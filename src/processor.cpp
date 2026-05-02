@@ -108,14 +108,29 @@ clap_process_status silvertune_process(SilvertunePlugin *p, const clap_process_t
         p->yin.push_sample(p->mono_buf[i]);
         if (p->yin.pending) {
             p->yin.run_detect();
-            if (p->yin.pitch_hz > 50.0f && p->yin.pitch_hz < 2000.0f && p->yin.confidence > 0.5f) {
-                float detected_midi = hz_to_midi(p->yin.pitch_hz);
-                int nearest_midi = quantize_to_scale(
-                    static_cast<int>(std::round(detected_midi)), root_key, scale);
-                float target_hz = midi_to_hz(static_cast<float>(nearest_midi));
-                float ratio = target_hz / p->yin.pitch_hz;
+            float hz   = p->yin.pitch_hz;
+            float conf = p->yin.confidence;
+
+            if (hz > 50.0f && hz < 2000.0f && conf > 0.5f) {
+                float det_midi = hz_to_midi(hz);
+                // Stay locked if within 40 cents of the locked note
+                bool stays_locked = p->locked_midi >= 0.0f &&
+                                    std::fabs(det_midi - p->locked_midi) < 0.4f;
+                if (!stays_locked) p->locked_midi = det_midi;
+                p->low_conf_count = 0;
+
+                int nearest = quantize_to_scale(
+                    static_cast<int>(std::round(p->locked_midi)), root_key, scale);
+                float target_hz = midi_to_hz(static_cast<float>(nearest));
+                float ratio = target_hz / hz;
                 ratio = 1.0f + (ratio - 1.0f) * speed;
                 p->held_ratio = std::clamp(ratio, 0.5f, 2.0f);
+            } else if (conf < 0.35f) {
+                if (++p->low_conf_count >= 3) {
+                    p->locked_midi    = -1.0f;
+                    p->low_conf_count = 0;
+                    p->held_ratio     = 1.0f;
+                }
             }
         }
     }

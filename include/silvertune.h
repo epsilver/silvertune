@@ -69,7 +69,9 @@ struct SilvertunePlugin {
 
     // Pitch detection (YIN)
     YinDetector yin;
-    float held_ratio = 1.0f;
+    float held_ratio   = 1.0f;
+    float locked_midi  = -1.0f; // currently locked MIDI note (-1 = unlocked)
+    int   low_conf_count = 0;   // consecutive low-confidence hops
 
     // Grain pitch shifters (one per channel) + doubler
     GrainShifter shifter[2];
