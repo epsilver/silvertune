@@ -41,19 +41,19 @@ static constexpr int CTRL_W = GUI_W - 8 - CTRL_X;   // = 351
 
 // KEY stepper (left section of controls)
 static constexpr int KEY_LABEL_X  = 205;
-static constexpr int KEY_LABEL_Y  = 36;
-static constexpr int KEY_BTN_Y    = 52;
+static constexpr int KEY_LABEL_Y  = 34;
+static constexpr int KEY_BTN_Y    = 64;   // below 34 + 24(scale=3 text) + 6
 static constexpr int KEY_LEFT_X   = 205;
 static constexpr int KEY_TEXT_X   = 227;   // KEY_LEFT_X + 16(arrow) + 6(gap)
-static constexpr int KEY_RIGHT_X  = 249;   // KEY_TEXT_X + 14(max "A#") + 8(gap)
+static constexpr int KEY_RIGHT_X  = 275;   // KEY_TEXT_X + 42(max "A#" @scale=3) + 6
 
 // SCALE stepper (right section of controls)
-static constexpr int SCALE_LABEL_X = 375;
-static constexpr int SCALE_LABEL_Y = 36;
-static constexpr int SCALE_BTN_Y   = 52;
-static constexpr int SCALE_LEFT_X  = 375;
-static constexpr int SCALE_TEXT_X  = 397;   // SCALE_LEFT_X + 16 + 6
-static constexpr int SCALE_RIGHT_X = 466;   // SCALE_TEXT_X + "Chromatic"(63px) + 6
+static constexpr int SCALE_LABEL_X = 317;
+static constexpr int SCALE_LABEL_Y = 34;
+static constexpr int SCALE_BTN_Y   = 64;
+static constexpr int SCALE_LEFT_X  = 317;
+static constexpr int SCALE_TEXT_X  = 339;   // SCALE_LEFT_X + 16 + 6
+static constexpr int SCALE_RIGHT_X = 534;   // SCALE_TEXT_X + "Chromatic"(189px @scale=3) + 6
 
 // Stepper button size
 static constexpr int STEPPER_BTN_W = 16;
@@ -61,22 +61,22 @@ static constexpr int STEPPER_BTN_H = 16;
 
 // WIDE slider
 static constexpr int WIDE_LABEL_X  = 205;
-static constexpr int WIDE_LABEL_Y  = 92;
+static constexpr int WIDE_LABEL_Y  = 96;
 static constexpr int WIDE_PCT_X    = GUI_W - 8;   // = 552
-static constexpr int WIDE_PCT_Y    = 92;
+static constexpr int WIDE_PCT_Y    = 96;
 static constexpr int WIDE_TRACK_X  = 205;
-static constexpr int WIDE_TRACK_Y  = 106;
+static constexpr int WIDE_TRACK_Y  = 124;   // label bottom (96+24) + 4
 static constexpr int WIDE_TRACK_W  = GUI_W - 8 - 205;  // = 347
 static constexpr int WIDE_TRACK_H  = 3;
 static constexpr int SLIDER_THUMB_R = 7;
 
 // TUNE slider
 static constexpr int TUNE_LABEL_X  = 205;
-static constexpr int TUNE_LABEL_Y  = 156;
+static constexpr int TUNE_LABEL_Y  = 164;
 static constexpr int TUNE_PCT_X    = GUI_W - 8;   // = 552
-static constexpr int TUNE_PCT_Y    = 156;
+static constexpr int TUNE_PCT_Y    = 164;
 static constexpr int TUNE_TRACK_X  = 205;
-static constexpr int TUNE_TRACK_Y  = 170;
+static constexpr int TUNE_TRACK_Y  = 192;   // label bottom (164+24) + 4
 static constexpr int TUNE_TRACK_W  = GUI_W - 8 - 205;  // = 347
 static constexpr int TUNE_TRACK_H  = 3;
 

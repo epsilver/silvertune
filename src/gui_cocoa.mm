@@ -161,7 +161,7 @@ static void cg_draw_str_r(CGContextRef ctx, CGFloat x, CGFloat y, const char *st
     // Header bar
     // -----------------------------------------------------------------------
     cg_draw_str(ctx, 8, 3, "SILVERTUNE", 2, R(COL_ACCENT), G(COL_ACCENT), B(COL_ACCENT));
-    cg_draw_str_r(ctx, GUI_W - 8, 7, "VERTICAL RECTANGLE", 1,
+    cg_draw_str_r(ctx, GUI_W - 8, 5, "VERTICAL RECTANGLE", 2,
                   R(COL_LABEL), G(COL_LABEL), B(COL_LABEL));
     cgline(ctx, 0, HDR_H, GUI_W, HDR_H, R(COL_HDR_SEP), G(COL_HDR_SEP), B(COL_HDR_SEP));
 
@@ -291,7 +291,7 @@ static void cg_draw_str_r(CGContextRef ctx, CGFloat x, CGFloat y, const char *st
         cg_draw_str_c(ctx, ARC_PCX, ARC_PCY + 14, corr_str, 3, nr, ng, nb);
     }
 
-    // Cents value below note name, scale=1
+    // Cents value below note name, scale=2
     {
         char cbuf[16];
         if (active) {
@@ -301,10 +301,10 @@ static void cg_draw_str_r(CGContextRef ctx, CGFloat x, CGFloat y, const char *st
             snprintf(cbuf, sizeof(cbuf), "--");
         }
         bool in_tune = active && std::fabs(dc) < 5.0f;
-        CGFloat cr = in_tune ? R(COL_ACCENT) : R(COL_LABEL);
-        CGFloat cg = in_tune ? G(COL_ACCENT) : G(COL_LABEL);
-        CGFloat cb = in_tune ? B(COL_ACCENT) : B(COL_LABEL);
-        cg_draw_str_c(ctx, ARC_PCX, ARC_PCY + 14 + 3 * FONT6X8_H + 4, cbuf, 1, cr, cg, cb);
+        CGFloat cr = in_tune ? R(COL_ACCENT) : R(COL_WHITE);
+        CGFloat cg = in_tune ? G(COL_ACCENT) : G(COL_WHITE);
+        CGFloat cb = in_tune ? B(COL_ACCENT) : B(COL_WHITE);
+        cg_draw_str_c(ctx, ARC_PCX, ARC_PCY + 14 + 3 * FONT6X8_H + 4, cbuf, 2, cr, cg, cb);
     }
 
     // -----------------------------------------------------------------------
@@ -317,38 +317,38 @@ static void cg_draw_str_r(CGContextRef ctx, CGFloat x, CGFloat y, const char *st
     // -----------------------------------------------------------------------
     // KEY stepper
     // -----------------------------------------------------------------------
-    cg_draw_str(ctx, KEY_LABEL_X, KEY_LABEL_Y, "KEY", 1,
-                R(COL_LABEL), G(COL_LABEL), B(COL_LABEL));
+    cg_draw_str(ctx, KEY_LABEL_X, KEY_LABEL_Y, "KEY", 3,
+                R(COL_WHITE), G(COL_WHITE), B(COL_WHITE));
     cg_left_triangle(ctx, KEY_LEFT_X, KEY_BTN_Y,
-                     R(COL_LABEL), G(COL_LABEL), B(COL_LABEL));
+                     R(COL_WHITE), G(COL_WHITE), B(COL_WHITE));
     cg_right_triangle(ctx, KEY_RIGHT_X, KEY_BTN_Y,
-                      R(COL_LABEL), G(COL_LABEL), B(COL_LABEL));
+                      R(COL_WHITE), G(COL_WHITE), B(COL_WHITE));
     {
         int key = (int)std::lround(p->param_key.load());
         key = ((key % 12) + 12) % 12;
-        cg_draw_str(ctx, KEY_TEXT_X, KEY_BTN_Y, NOTE_NAMES[key], 1,
-                    R(COL_WHITE), G(COL_WHITE), B(COL_WHITE));
+        cg_draw_str(ctx, KEY_TEXT_X, KEY_BTN_Y, NOTE_NAMES[key], 3,
+                    R(COL_ACCENT), G(COL_ACCENT), B(COL_ACCENT));
     }
 
     // -----------------------------------------------------------------------
     // SCALE stepper
     // -----------------------------------------------------------------------
-    cg_draw_str(ctx, SCALE_LABEL_X, SCALE_LABEL_Y, "SCALE", 1,
-                R(COL_LABEL), G(COL_LABEL), B(COL_LABEL));
+    cg_draw_str(ctx, SCALE_LABEL_X, SCALE_LABEL_Y, "SCALE", 3,
+                R(COL_WHITE), G(COL_WHITE), B(COL_WHITE));
     cg_left_triangle(ctx, SCALE_LEFT_X, SCALE_BTN_Y,
-                     R(COL_LABEL), G(COL_LABEL), B(COL_LABEL));
+                     R(COL_WHITE), G(COL_WHITE), B(COL_WHITE));
     cg_right_triangle(ctx, SCALE_RIGHT_X, SCALE_BTN_Y,
-                      R(COL_LABEL), G(COL_LABEL), B(COL_LABEL));
+                      R(COL_WHITE), G(COL_WHITE), B(COL_WHITE));
     {
         int ps = (int)std::lround(p->param_scale.load());
         ps = ps < 0 ? 0 : (ps > 2 ? 2 : ps);
         int gs = PARAM_TO_GUI_SCALE[ps];
-        cg_draw_str(ctx, SCALE_TEXT_X, SCALE_BTN_Y, SCALE_NAMES_GUI[gs], 1,
-                    R(COL_WHITE), G(COL_WHITE), B(COL_WHITE));
+        cg_draw_str(ctx, SCALE_TEXT_X, SCALE_BTN_Y, SCALE_NAMES_GUI[gs], 3,
+                    R(COL_ACCENT), G(COL_ACCENT), B(COL_ACCENT));
     }
 
     // Horizontal divider
-    cgline(ctx, CTRL_X, KEY_BTN_Y + 20, GUI_W - 8, KEY_BTN_Y + 20,
+    cgline(ctx, CTRL_X, KEY_BTN_Y + 24, GUI_W - 8, KEY_BTN_Y + 24,
            R(COL_HDR_SEP), G(COL_HDR_SEP), B(COL_HDR_SEP));
 
     // -----------------------------------------------------------------------
@@ -358,12 +358,10 @@ static void cg_draw_str_r(CGContextRef ctx, CGFloat x, CGFloat y, const char *st
         float wide = (float)p->param_wide.load();
         char pct[16];
         snprintf(pct, sizeof(pct), "%.0f%%", wide * 100.0f);
-        cg_draw_str(ctx, WIDE_LABEL_X, WIDE_LABEL_Y, "WIDE", 1,
-                    R(COL_LABEL), G(COL_LABEL), B(COL_LABEL));
-        CGFloat pr = wide > 0.0f ? R(COL_WHITE) : R(COL_LABEL);
-        CGFloat pg = wide > 0.0f ? G(COL_WHITE) : G(COL_LABEL);
-        CGFloat pb = wide > 0.0f ? B(COL_WHITE) : B(COL_LABEL);
-        cg_draw_str_r(ctx, WIDE_PCT_X, WIDE_PCT_Y, pct, 1, pr, pg, pb);
+        cg_draw_str(ctx, WIDE_LABEL_X, WIDE_LABEL_Y, "WIDE", 3,
+                    R(COL_WHITE), G(COL_WHITE), B(COL_WHITE));
+        cg_draw_str_r(ctx, WIDE_PCT_X, WIDE_PCT_Y, pct, 3,
+                      R(COL_WHITE), G(COL_WHITE), B(COL_WHITE));
         cgfill(ctx, WIDE_TRACK_X, WIDE_TRACK_Y, WIDE_TRACK_W, WIDE_TRACK_H,
                R(COL_TRACK), G(COL_TRACK), B(COL_TRACK));
         int fw = slider_px(wide, WIDE_TRACK_X, WIDE_TRACK_W) - WIDE_TRACK_X;
@@ -383,12 +381,10 @@ static void cg_draw_str_r(CGContextRef ctx, CGFloat x, CGFloat y, const char *st
         float tune = (float)p->param_speed.load();
         char pct[16];
         snprintf(pct, sizeof(pct), "%.0f%%", tune * 100.0f);
-        cg_draw_str(ctx, TUNE_LABEL_X, TUNE_LABEL_Y, "TUNE", 1,
-                    R(COL_LABEL), G(COL_LABEL), B(COL_LABEL));
-        CGFloat pr = tune > 0.0f ? R(COL_WHITE) : R(COL_LABEL);
-        CGFloat pg = tune > 0.0f ? G(COL_WHITE) : G(COL_LABEL);
-        CGFloat pb = tune > 0.0f ? B(COL_WHITE) : B(COL_LABEL);
-        cg_draw_str_r(ctx, TUNE_PCT_X, TUNE_PCT_Y, pct, 1, pr, pg, pb);
+        cg_draw_str(ctx, TUNE_LABEL_X, TUNE_LABEL_Y, "TUNE", 3,
+                    R(COL_WHITE), G(COL_WHITE), B(COL_WHITE));
+        cg_draw_str_r(ctx, TUNE_PCT_X, TUNE_PCT_Y, pct, 3,
+                      R(COL_WHITE), G(COL_WHITE), B(COL_WHITE));
         cgfill(ctx, TUNE_TRACK_X, TUNE_TRACK_Y, TUNE_TRACK_W, TUNE_TRACK_H,
                R(COL_TRACK), G(COL_TRACK), B(COL_TRACK));
         int fw = slider_px(tune, TUNE_TRACK_X, TUNE_TRACK_W) - TUNE_TRACK_X;

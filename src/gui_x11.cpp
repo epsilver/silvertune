@@ -153,12 +153,8 @@ static void do_draw(X11Data *d) {
     // Header bar (y=0 to HDR_H=20)
     // -----------------------------------------------------------------------
     {
-        // "SILVERTUNE" at scale=2, COL_ACCENT, left-aligned at x=8, y=3
         draw_str(d, buf, 8, 3, "SILVERTUNE", 2, C_ACCENT);
-
-        // "VERTICAL RECTANGLE" at scale=1, COL_LABEL, right-aligned at x=GUI_W-8
-        const char *subtitle = "VERTICAL RECTANGLE";
-        draw_str_r(d, buf, GUI_W - 8, 7, subtitle, 1, C_LABEL);
+        draw_str_r(d, buf, GUI_W - 8, 5, "VERTICAL RECTANGLE", 2, C_LABEL);
 
         // Separator line at y=HDR_H
         draw_line(d, buf, 0, HDR_H, GUI_W, HDR_H, C_HDR_SEP);
@@ -280,7 +276,7 @@ static void do_draw(X11Data *d) {
         }
         bool in_tune = active && std::fabs(dc) < 5.0f;
         draw_str_c(d, buf, ARC_PCX, ARC_PCY + 14 + 3 * FONT6X8_H + 4,
-                   cbuf, 1, in_tune ? C_ACCENT : C_LABEL);
+                   cbuf, 2, in_tune ? C_ACCENT : C_WHITE);
     }
 
     // -----------------------------------------------------------------------
@@ -292,30 +288,30 @@ static void do_draw(X11Data *d) {
     // -----------------------------------------------------------------------
     // KEY stepper
     // -----------------------------------------------------------------------
-    draw_str(d, buf, KEY_LABEL_X, KEY_LABEL_Y, "KEY", 1, C_LABEL);
-    draw_left_triangle(d, buf, KEY_LEFT_X, KEY_BTN_Y, C_LABEL);
-    draw_right_triangle(d, buf, KEY_RIGHT_X, KEY_BTN_Y, C_LABEL);
+    draw_str(d, buf, KEY_LABEL_X, KEY_LABEL_Y, "KEY", 3, C_WHITE);
+    draw_left_triangle(d, buf, KEY_LEFT_X, KEY_BTN_Y, C_WHITE);
+    draw_right_triangle(d, buf, KEY_RIGHT_X, KEY_BTN_Y, C_WHITE);
     {
         int key = (int)std::lround(p->param_key.load());
         key = ((key % 12) + 12) % 12;
-        draw_str(d, buf, KEY_TEXT_X, KEY_BTN_Y, NOTE_NAMES[key], 1, C_WHITE);
+        draw_str(d, buf, KEY_TEXT_X, KEY_BTN_Y, NOTE_NAMES[key], 3, C_ACCENT);
     }
 
     // -----------------------------------------------------------------------
     // SCALE stepper
     // -----------------------------------------------------------------------
-    draw_str(d, buf, SCALE_LABEL_X, SCALE_LABEL_Y, "SCALE", 1, C_LABEL);
-    draw_left_triangle(d, buf, SCALE_LEFT_X, SCALE_BTN_Y, C_LABEL);
-    draw_right_triangle(d, buf, SCALE_RIGHT_X, SCALE_BTN_Y, C_LABEL);
+    draw_str(d, buf, SCALE_LABEL_X, SCALE_LABEL_Y, "SCALE", 3, C_WHITE);
+    draw_left_triangle(d, buf, SCALE_LEFT_X, SCALE_BTN_Y, C_WHITE);
+    draw_right_triangle(d, buf, SCALE_RIGHT_X, SCALE_BTN_Y, C_WHITE);
     {
         int param_scale = (int)std::lround(p->param_scale.load());
         int gui_scale = PARAM_TO_GUI_SCALE[param_scale < 0 ? 0 : (param_scale > 2 ? 2 : param_scale)];
-        draw_str(d, buf, SCALE_TEXT_X, SCALE_BTN_Y, SCALE_NAMES_GUI[gui_scale], 1, C_WHITE);
+        draw_str(d, buf, SCALE_TEXT_X, SCALE_BTN_Y, SCALE_NAMES_GUI[gui_scale], 3, C_ACCENT);
     }
 
     // Horizontal divider between steppers and sliders
-    draw_line(d, buf, CTRL_X, KEY_BTN_Y + 20,
-              GUI_W - 8, KEY_BTN_Y + 20, C_HDR_SEP);
+    draw_line(d, buf, CTRL_X, KEY_BTN_Y + 24,
+              GUI_W - 8, KEY_BTN_Y + 24, C_HDR_SEP);
 
     // -----------------------------------------------------------------------
     // WIDE slider
@@ -325,18 +321,13 @@ static void do_draw(X11Data *d) {
         char pct_str[16];
         snprintf(pct_str, sizeof(pct_str), "%.0f%%", wide * 100.0f);
 
-        draw_str(d, buf, WIDE_LABEL_X, WIDE_LABEL_Y, "WIDE", 1, C_LABEL);
-        // Right-align percentage at WIDE_PCT_X
-        draw_str_r(d, buf, WIDE_PCT_X, WIDE_PCT_Y, pct_str, 1,
-                   wide > 0.0f ? C_WHITE : C_LABEL);
+        draw_str(d, buf, WIDE_LABEL_X, WIDE_LABEL_Y, "WIDE", 3, C_WHITE);
+        draw_str_r(d, buf, WIDE_PCT_X, WIDE_PCT_Y, pct_str, 3, C_WHITE);
 
-        // Track background
         fill_rect(d, buf, WIDE_TRACK_X, WIDE_TRACK_Y, WIDE_TRACK_W, WIDE_TRACK_H, C_TRACK);
-        // Fill portion
         int fill_w = slider_px(wide, WIDE_TRACK_X, WIDE_TRACK_W) - WIDE_TRACK_X;
         if (fill_w > 0)
             fill_rect(d, buf, WIDE_TRACK_X, WIDE_TRACK_Y, fill_w, WIDE_TRACK_H, C_FILL);
-        // Thumb
         int thumb_x = slider_px(wide, WIDE_TRACK_X, WIDE_TRACK_W);
         int thumb_y = WIDE_TRACK_Y + WIDE_TRACK_H / 2;
         fill_circle(d, buf, thumb_x, thumb_y, SLIDER_THUMB_R, C_THUMB);
@@ -350,18 +341,13 @@ static void do_draw(X11Data *d) {
         char pct_str[16];
         snprintf(pct_str, sizeof(pct_str), "%.0f%%", tune * 100.0f);
 
-        draw_str(d, buf, TUNE_LABEL_X, TUNE_LABEL_Y, "TUNE", 1, C_LABEL);
-        // Right-align percentage at TUNE_PCT_X
-        draw_str_r(d, buf, TUNE_PCT_X, TUNE_PCT_Y, pct_str, 1,
-                   tune > 0.0f ? C_WHITE : C_LABEL);
+        draw_str(d, buf, TUNE_LABEL_X, TUNE_LABEL_Y, "TUNE", 3, C_WHITE);
+        draw_str_r(d, buf, TUNE_PCT_X, TUNE_PCT_Y, pct_str, 3, C_WHITE);
 
-        // Track background
         fill_rect(d, buf, TUNE_TRACK_X, TUNE_TRACK_Y, TUNE_TRACK_W, TUNE_TRACK_H, C_TRACK);
-        // Fill portion
         int fill_w = slider_px(tune, TUNE_TRACK_X, TUNE_TRACK_W) - TUNE_TRACK_X;
         if (fill_w > 0)
             fill_rect(d, buf, TUNE_TRACK_X, TUNE_TRACK_Y, fill_w, TUNE_TRACK_H, C_FILL);
-        // Thumb
         int thumb_x = slider_px(tune, TUNE_TRACK_X, TUNE_TRACK_W);
         int thumb_y = TUNE_TRACK_Y + TUNE_TRACK_H / 2;
         fill_circle(d, buf, thumb_x, thumb_y, SLIDER_THUMB_R, C_THUMB);
