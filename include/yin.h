@@ -4,7 +4,7 @@
 
 class YinDetector {
 public:
-    static constexpr uint32_t BUF_SIZE = 512;
+    static constexpr uint32_t BUF_SIZE = 1024;
     static constexpr uint32_t HALF     = BUF_SIZE / 2;
     static constexpr uint32_t HOP_SIZE = 128;
 
