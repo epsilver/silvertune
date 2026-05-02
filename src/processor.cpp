@@ -136,6 +136,7 @@ clap_process_status silvertune_process(SilvertunePlugin *p, const clap_process_t
                     p->locked_midi    = -1.0f;
                     p->low_conf_count = 0;
                     p->held_ratio     = 1.0f;
+                    p->current_ratio  = 1.0f;
                     p->gui_det.store(-1, std::memory_order_relaxed);
                     p->gui_corr.store(-1, std::memory_order_relaxed);
                     p->gui_det_midi.store(-1.0f, std::memory_order_relaxed);
@@ -153,10 +154,13 @@ clap_process_status silvertune_process(SilvertunePlugin *p, const clap_process_t
         p->gui_rms.store(rms, std::memory_order_relaxed);
     }
 
-    float pitch_ratio = p->held_ratio;
+    // Exponential approach: at speed=1 snap immediately, otherwise glide
+    float chase_coeff = (speed >= 1.0f) ? 1.0f : speed * speed * 0.03f;
 
     // Process each sample through the grain shifter + doubler
     for (uint32_t i = 0; i < frames; ++i) {
+        p->current_ratio += (p->held_ratio - p->current_ratio) * chase_coeff;
+        float pitch_ratio = p->current_ratio;
         for (uint32_t ch = 0; ch < num_channels; ++ch) {
             float dry = in_buf.data32[ch][i];
             float wet = p->shifter[ch].process(dry, static_cast<double>(pitch_ratio));
