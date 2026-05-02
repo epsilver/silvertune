@@ -123,6 +123,17 @@ static inline float slider_val(int px, int track_x, int track_w) {
 }
 
 // ---------------------------------------------------------------------------
+// Piano layout constants (used by drawing and hit-testing)
+// ---------------------------------------------------------------------------
+
+static constexpr int PIANO_KX   = DISP_X + 4;
+static constexpr int PIANO_KY   = DISP_Y + 28;   // fixed; drawing code uses this too
+static constexpr int PIANO_WK_W = 20;
+static constexpr int PIANO_WK_H = 16;
+static constexpr int PIANO_BK_W = 12;
+static constexpr int PIANO_BK_H = 10;
+
+// ---------------------------------------------------------------------------
 // Hit test helpers
 // ---------------------------------------------------------------------------
 
@@ -154,6 +165,27 @@ static inline bool hit_tune_track(int mx, int my) {
         TUNE_TRACK_W + SLIDER_THUMB_R * 2, TUNE_TRACK_H + SLIDER_THUMB_R * 2);
 }
 
+// Returns semitone 0-11 if the click lands on a piano key, -1 otherwise.
+// Black keys take priority (they visually sit on top of white keys).
+static inline int hit_piano_key(int mx, int my) {
+    if (!hit_rect(mx, my, PIANO_KX, PIANO_KY, PIANO_WK_W * 7, PIANO_WK_H + 1))
+        return -1;
+    struct BkDef { int note, dx; };
+    static const BkDef BK[5] = {
+        {1, 14}, {3, 34}, {6, 74}, {8, 94}, {10, 114}
+    };
+    static const int WK[7] = { 0, 2, 4, 5, 7, 9, 11 };
+    // Black keys only occupy the top portion
+    if (my < PIANO_KY + PIANO_BK_H) {
+        for (int i = 0; i < 5; ++i) {
+            if (hit_rect(mx, my, PIANO_KX + BK[i].dx, PIANO_KY, PIANO_BK_W, PIANO_BK_H))
+                return BK[i].note;
+        }
+    }
+    int ki = (mx - PIANO_KX) / PIANO_WK_W;
+    return (ki >= 0 && ki < 7) ? WK[ki] : -1;
+}
+
 // ---------------------------------------------------------------------------
 // GUI state struct
 // ---------------------------------------------------------------------------
@@ -172,6 +204,7 @@ struct GuiState {
     // Needle animation state (GUI thread only)
     float    disp_cents     = 0.0f;
     uint32_t last_det_frame = 0;
+    int      snap_cooldown  = 0;   // frames to skip before next snap
 };
 
 // ---------------------------------------------------------------------------

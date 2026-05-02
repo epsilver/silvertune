@@ -165,5 +165,26 @@ clap_process_status silvertune_process(SilvertunePlugin *p, const clap_process_t
         }
     }
 
+    // Piano key preview tone
+    {
+        int rem = p->gui_preview_frames.load(std::memory_order_relaxed);
+        if (rem > 0) {
+            float hz = p->gui_preview_hz.load(std::memory_order_relaxed);
+            double phase_inc = hz / p->sample_rate;
+            int play = (rem < (int)frames) ? rem : (int)frames;
+            int total_dur = (int)(p->sample_rate * 0.5);
+            for (int i = 0; i < play; ++i) {
+                float env = std::min(1.0f, (float)rem / 2048.0f)   // fade out
+                          * std::min(1.0f, (float)(total_dur - rem + i + 1) / 128.0f); // attack
+                float s = (float)std::sin(2.0 * M_PI * p->preview_phase) * 0.25f * env;
+                p->preview_phase += phase_inc;
+                if (p->preview_phase >= 1.0) p->preview_phase -= 1.0;
+                for (uint32_t ch = 0; ch < num_channels; ++ch)
+                    out_buf.data32[ch][i] += s;
+            }
+            p->gui_preview_frames.fetch_sub(play, std::memory_order_relaxed);
+        }
+    }
+
     return CLAP_PROCESS_CONTINUE;
 }

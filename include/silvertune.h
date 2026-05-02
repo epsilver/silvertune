@@ -92,6 +92,12 @@ struct SilvertunePlugin {
     std::atomic<float>    gui_det_midi{-1.0f};
     std::atomic<float>    gui_rms{0.0f};
     std::atomic<uint32_t> gui_det_frame{0};
+
+    // Piano key preview (GUI → audio)
+    std::atomic<float>    gui_preview_hz{0.0f};
+    std::atomic<int>      gui_preview_frames{0};
+    double                preview_phase = 0.0;  // audio thread only
+
     const clap_host_params_t *host_params = nullptr;
 };
 

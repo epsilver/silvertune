@@ -199,32 +199,52 @@ static void do_paint(HWND hwnd, HDC hdc) {
         DeleteObject(pen);
     }
 
-    // DET label + detected note (above arc, centered)
-    {
-        int det = p->gui_det.load(std::memory_order_relaxed);
-        const char *det_str = (det >= 0) ? NOTE_NAMES[det % 12] : "--";
-        SIZE sl = {}, sn = {};
-        SelectObject(mem_dc, s_font_label);
-        GetTextExtentPoint32A(mem_dc, "DET", 3, &sl);
-        SelectObject(mem_dc, s_font_value);
-        GetTextExtentPoint32A(mem_dc, det_str, (int)strlen(det_str), &sn);
-        draw_text_dc(mem_dc, pcx - sl.cx / 2, DISP_Y + 22, "DET", s_font_label, col_label);
-        draw_text_dc(mem_dc, pcx - sn.cx / 2, DISP_Y + 35, det_str, s_font_value, col_white);
-    }
-
-    // Read pitch state, update needle animation
+    // Read pitch state (shared by piano, needle, and CORR display)
     float dmidi  = p->gui_det_midi.load(std::memory_order_relaxed);
     int   corr   = p->gui_corr.load(std::memory_order_relaxed);
     bool  active = (corr >= 0 && dmidi >= 0.0f);
+
+    // Mini piano: one octave C-B, highlight corrected note class
+    {
+        static const int WK[7] = { 0, 2, 4, 5, 7, 9, 11 };
+        struct BkDef { int note, dx; };
+        static const BkDef BK[5] = {
+            {1, 14}, {3, 34}, {6, 74}, {8, 94}, {10, 114}
+        };
+        int hi = (corr >= 0) ? corr % 12 : -1;
+
+        for (int i = 0; i < 7; ++i) {
+            int x   = PIANO_KX + i * PIANO_WK_W;
+            bool lit = (WK[i] == hi);
+            if (lit)
+                fill_rect_dc(mem_dc, x, PIANO_KY, PIANO_WK_W - 1, PIANO_WK_H, col_green);
+            else
+                draw_rect_dc(mem_dc, x, PIANO_KY, PIANO_WK_W, PIANO_WK_H + 1, col_dim_green);
+        }
+        for (int i = 0; i < 5; ++i) {
+            int x   = PIANO_KX + BK[i].dx;
+            bool lit = (BK[i].note == hi);
+            fill_rect_dc(mem_dc, x, PIANO_KY, PIANO_BK_W, PIANO_BK_H, lit ? col_green : col_label);
+        }
+    }
+
+    // Needle animation
     {
         uint32_t frame = p->gui_det_frame.load(std::memory_order_relaxed);
-        if (active && frame != p->gui.last_det_frame) {
-            float raw = (dmidi - (float)corr) * 100.0f;
-            p->gui.disp_cents = raw > 50.0f ? 50.0f : (raw < -50.0f ? -50.0f : raw);
+        if (!active) {
+            p->gui.snap_cooldown = 0;
+        } else if (frame != p->gui.last_det_frame) {
             p->gui.last_det_frame = frame;
-        } else {
-            p->gui.disp_cents *= 0.5f;
+            if (p->gui.snap_cooldown == 0) {
+                float raw = (dmidi - (float)corr) * 100.0f;
+                p->gui.disp_cents = raw > 50.0f ? 50.0f : (raw < -50.0f ? -50.0f : raw);
+                p->gui.snap_cooldown = 8;
+            }
         }
+        if (p->gui.snap_cooldown > 0) --p->gui.snap_cooldown;
+        float tune  = (float)p->param_speed.load();
+        float decay = 0.4f + (1.0f - tune) * 0.55f;
+        p->gui.disp_cents *= decay;
     }
     float dc = p->gui.disp_cents;
 
@@ -403,6 +423,17 @@ static LRESULT CALLBACK silvertune_wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPAR
         int mx = LOWORD(lp);
         int my = HIWORD(lp);
         SetCapture(hwnd);
+
+        {
+            int semi = hit_piano_key(mx, my);
+            if (semi >= 0) {
+                float hz = midi_to_hz(60.0f + semi);
+                p->preview_phase = 0.0;
+                p->gui_preview_hz.store(hz, std::memory_order_relaxed);
+                p->gui_preview_frames.store((int)(p->sample_rate * 0.5), std::memory_order_relaxed);
+                return 0;
+            }
+        }
 
         if (hit_key_left(mx, my)) {
             int k = (int)std::lround(p->param_key.load());
