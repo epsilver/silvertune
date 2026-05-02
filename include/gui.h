@@ -75,6 +75,7 @@ static constexpr GuiColor COL_LABEL        = { 0x88, 0x88, 0x88 };
 static constexpr GuiColor COL_TRACK        = { 0x2A, 0x2A, 0x2A };
 static constexpr GuiColor COL_FILL         = { 0x00, 0xAA, 0x44 };
 static constexpr GuiColor COL_THUMB        = { 0x00, 0xFF, 0x66 };
+static constexpr GuiColor COL_WHITE        = { 0xFF, 0xFF, 0xFF };
 
 // ---------------------------------------------------------------------------
 // Note / scale name helpers
@@ -167,6 +168,10 @@ struct GuiState {
     bool  drag_tune  = false;
     int   drag_x0    = 0;
     float drag_v0    = 0.0f;
+
+    // Needle animation state (GUI thread only)
+    float    disp_cents     = 0.0f;
+    uint32_t last_det_frame = 0;
 };
 
 // ---------------------------------------------------------------------------

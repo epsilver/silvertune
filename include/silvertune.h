@@ -87,9 +87,11 @@ struct SilvertunePlugin {
 
     // GUI state
     GuiState gui;
-    std::atomic<int>   gui_det{-1};
-    std::atomic<int>   gui_corr{-1};
-    std::atomic<float> gui_rms{0.0f};
+    std::atomic<int>      gui_det{-1};
+    std::atomic<int>      gui_corr{-1};
+    std::atomic<float>    gui_det_midi{-1.0f};
+    std::atomic<float>    gui_rms{0.0f};
+    std::atomic<uint32_t> gui_det_frame{0};
     const clap_host_params_t *host_params = nullptr;
 };
 

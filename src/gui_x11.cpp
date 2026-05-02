@@ -25,7 +25,7 @@ struct X11Data {
     XFontStruct    *fonts[3]  = {};   // [0]=label 10pt, [1]=value 12pt, [2]=note 18pt
     bool            running   = false;
     pthread_t       thread;
-    unsigned long   colors[8] = {};   // indexed by enum below
+    unsigned long   colors[9] = {};   // indexed by enum below
     SilvertunePlugin *plugin  = nullptr;
 
     // Pipe for wakeup/stop signalling
@@ -34,7 +34,7 @@ struct X11Data {
 
 enum ColorIdx {
     C_BG = 0, C_DISPLAY_BG, C_GREEN, C_DIM_GREEN,
-    C_LABEL, C_TRACK, C_FILL, C_THUMB
+    C_LABEL, C_TRACK, C_FILL, C_THUMB, C_WHITE
 };
 
 // ---------------------------------------------------------------------------
@@ -136,65 +136,110 @@ static void do_draw(X11Data *d) {
     // Background
     fill_rect(d, buf, 0, 0, GUI_W, GUI_H, C_BG);
 
-    // --- Left display panel ---
-    // Border (dim green, 1px)
+    // --- Left display panel (OLED arc needle meter) ---
     draw_rect(d, buf, DISP_X, DISP_Y, DISP_W, DISP_H, C_DIM_GREEN);
-    // Inner fill (black)
     fill_rect(d, buf, DISP_X + 1, DISP_Y + 1, DISP_W - 2, DISP_H - 2, C_DISPLAY_BG);
 
-    // Title "SILVERTUNE"
+    const int pcx   = DISP_X + DISP_W / 2;   // pivot x = 82
+    const int pcy   = DISP_Y + DISP_H - 60;  // pivot y = 132
+    const int arc_r = 54;
+
+    // Title centered
     {
         const char *title = "SILVERTUNE";
-        int tx = DISP_X + 4;
-        int ty = DISP_Y + 4 + font_ascent(d, 0);
-        draw_text(d, buf, tx, ty, title, 0, C_GREEN);
+        int tw = text_width(d, 0, title);
+        draw_text(d, buf, pcx - tw / 2, DISP_Y + 5 + font_ascent(d, 0), title, 0, C_GREEN);
     }
 
     // Separator
-    {
-        int sy = DISP_Y + 4 + font_height(d, 0) + 4;
-        draw_line(d, buf, DISP_X + 1, sy, DISP_X + DISP_W - 2, sy, C_DIM_GREEN);
-    }
+    int sep_y = DISP_Y + 5 + font_height(d, 0) + 3;
+    draw_line(d, buf, DISP_X + 2, sep_y, DISP_X + DISP_W - 3, sep_y, C_DIM_GREEN);
 
-    // DET label + note
+    // DET label + detected note (above arc)
     {
-        int sep_y = DISP_Y + 4 + font_height(d, 0) + 4;
-        int det_label_y = sep_y + 8 + font_ascent(d, 0);
-        draw_text(d, buf, DISP_X + 4, det_label_y, "DET", 0, C_LABEL);
-
         int det = p->gui_det.load(std::memory_order_relaxed);
         const char *det_str = (det >= 0) ? NOTE_NAMES[det % 12] : "--";
-        int note_y = det_label_y + font_height(d, 0) + 2 + font_ascent(d, 2);
-        draw_text(d, buf, DISP_X + 4, note_y, det_str, 2, C_GREEN);
+        int y = sep_y + 4;
+        int lw = text_width(d, 0, "DET");
+        draw_text(d, buf, pcx - lw / 2, y + font_ascent(d, 0), "DET", 0, C_LABEL);
+        y += font_height(d, 0) + 2;
+        int nw = text_width(d, 1, det_str);
+        draw_text(d, buf, pcx - nw / 2, y + font_ascent(d, 1), det_str, 1, C_WHITE);
     }
 
-    // CORR label + note
+    // Read pitch state, update needle animation
+    float dmidi  = p->gui_det_midi.load(std::memory_order_relaxed);
+    int   corr   = p->gui_corr.load(std::memory_order_relaxed);
+    bool  active = (corr >= 0 && dmidi >= 0.0f);
     {
-        int sep_y = DISP_Y + 4 + font_height(d, 0) + 4;
-        int corr_label_y = sep_y + 8 + font_ascent(d, 0) + font_height(d, 0) + 2 + font_height(d, 2) + 8;
-        draw_text(d, buf, DISP_X + 4, corr_label_y + font_ascent(d, 0), "CORR", 0, C_LABEL);
-
-        int corr = p->gui_corr.load(std::memory_order_relaxed);
-        const char *corr_str = (corr >= 0) ? NOTE_NAMES[corr % 12] : "--";
-        int cnote_y = corr_label_y + font_ascent(d, 0) + font_height(d, 0) + 2 + font_ascent(d, 2);
-        draw_text(d, buf, DISP_X + 4, cnote_y, corr_str, 2, C_GREEN);
-    }
-
-    // RMS bar
-    {
-        float rms = p->gui_rms.load(std::memory_order_relaxed);
-        float rms_clamped = rms > 1.0f ? 1.0f : rms;
-        int bar_x = DISP_X + 4;
-        int bar_y = DISP_Y + DISP_H - 16;
-        int bar_max_w = DISP_W - 8;
-        int bar_h = 8;
-
-        fill_rect(d, buf, bar_x, bar_y, bar_max_w, bar_h, C_TRACK);
-        if (rms_clamped > 0.0f) {
-            int fill_w = (int)(rms_clamped * bar_max_w);
-            if (fill_w > 0)
-                fill_rect(d, buf, bar_x, bar_y, fill_w, bar_h, C_FILL);
+        uint32_t frame = p->gui_det_frame.load(std::memory_order_relaxed);
+        if (active && frame != p->gui.last_det_frame) {
+            // New detection: snap to raw offset, will animate to center each frame
+            float raw = (dmidi - (float)corr) * 100.0f;
+            p->gui.disp_cents = raw > 50.0f ? 50.0f : (raw < -50.0f ? -50.0f : raw);
+            p->gui.last_det_frame = frame;
+        } else {
+            // Animate toward center (corrected pitch = 0¢)
+            p->gui.disp_cents *= 0.5f;
         }
+    }
+    float dc = p->gui.disp_cents;
+
+    // Arc: upper semicircle as polyline (a=0 right → a=π left, through top)
+    for (int i = 0; i < 48; ++i) {
+        double a0 = (double)i       * M_PI / 48.0;
+        double a1 = (double)(i + 1) * M_PI / 48.0;
+        int x0 = pcx + (int)(arc_r * std::cos(a0));
+        int y0 = pcy - (int)(arc_r * std::sin(a0));
+        int x1 = pcx + (int)(arc_r * std::cos(a1));
+        int y1 = pcy - (int)(arc_r * std::sin(a1));
+        draw_line(d, buf, x0, y0, x1, y1, C_DIM_GREEN);
+    }
+
+    // Tick marks at 0, ±25, ±50 cents
+    {
+        struct { int cv; int len; } ticks[] = {
+            {0, 12}, {-25, 7}, {25, 7}, {-50, 5}, {50, 5}
+        };
+        for (auto &tk : ticks) {
+            double a  = (90.0 - tk.cv * 90.0 / 50.0) * M_PI / 180.0;
+            double ca = std::cos(a), sa = std::sin(a);
+            int ix = pcx + (int)((arc_r - tk.len) * ca);
+            int iy = pcy - (int)((arc_r - tk.len) * sa);
+            int ox = pcx + (int)((arc_r + 3)      * ca);
+            int oy = pcy - (int)((arc_r + 3)      * sa);
+            draw_line(d, buf, ix, iy, ox, oy, tk.cv == 0 ? C_DIM_GREEN : C_LABEL);
+        }
+    }
+
+    // Needle from pivot to arc, smoothed
+    {
+        double a  = (90.0 - (double)dc * 90.0 / 50.0) * M_PI / 180.0;
+        int nx    = pcx + (int)((arc_r - 5) * std::cos(a));
+        int ny    = pcy - (int)((arc_r - 5) * std::sin(a));
+        int ncol  = active ? (std::fabs(dc) < 5.0f ? C_GREEN : C_WHITE) : C_LABEL;
+        draw_line(d, buf, pcx, pcy, nx, ny, ncol);
+        fill_circle(d, buf, nx,  ny,  2, ncol);
+        fill_circle(d, buf, pcx, pcy, 2, C_DIM_GREEN);
+    }
+
+    // CORR note below pivot
+    {
+        const char *corr_str = (corr >= 0) ? NOTE_NAMES[corr % 12] : "--";
+        int nw = text_width(d, 1, corr_str);
+        draw_text(d, buf, pcx - nw / 2, pcy + 14 + font_ascent(d, 1), corr_str, 1, C_WHITE);
+    }
+
+    // Cents value below CORR note
+    if (active) {
+        float raw = (dmidi - (float)corr) * 100.0f;
+        char cbuf[16];
+        snprintf(cbuf, sizeof(cbuf), "%+.0fc", raw);
+        int cw   = text_width(d, 0, cbuf);
+        int ccol = std::fabs(dc) < 5.0f ? C_GREEN : C_LABEL;
+        draw_text(d, buf, pcx - cw / 2,
+                  pcy + 14 + font_height(d, 1) + 4 + font_ascent(d, 0),
+                  cbuf, 0, ccol);
     }
 
     // --- KEY stepper ---
@@ -507,6 +552,7 @@ bool gui_set_parent(SilvertunePlugin *p, void *native_parent) {
     d->colors[C_TRACK]      = alloc_color(d->dpy, screen, COL_TRACK.r,       COL_TRACK.g,       COL_TRACK.b);
     d->colors[C_FILL]       = alloc_color(d->dpy, screen, COL_FILL.r,        COL_FILL.g,        COL_FILL.b);
     d->colors[C_THUMB]      = alloc_color(d->dpy, screen, COL_THUMB.r,       COL_THUMB.g,       COL_THUMB.b);
+    d->colors[C_WHITE]      = alloc_color(d->dpy, screen, COL_WHITE.r,       COL_WHITE.g,       COL_WHITE.b);
 
     XMapWindow(d->dpy, d->win);
     XFlush(d->dpy);

@@ -167,57 +167,139 @@ static void do_paint(HWND hwnd, HDC hdc) {
     COLORREF col_track      = RGB(0x2A, 0x2A, 0x2A);
     COLORREF col_fill       = RGB(0x00, 0xAA, 0x44);
     COLORREF col_thumb      = RGB(0x00, 0xFF, 0x66);
+    COLORREF col_white      = RGB(0xFF, 0xFF, 0xFF);
 
     // Background
     fill_rect_dc(mem_dc, 0, 0, GUI_W, GUI_H, col_bg);
 
-    // --- Left display panel ---
+    // --- Left display panel (OLED arc needle meter) ---
     draw_rect_dc(mem_dc, DISP_X, DISP_Y, DISP_W, DISP_H, col_dim_green);
     fill_rect_dc(mem_dc, DISP_X + 1, DISP_Y + 1, DISP_W - 2, DISP_H - 2, col_display_bg);
 
-    // Title
-    draw_text_dc(mem_dc, DISP_X + 4, DISP_Y + 4, "SILVERTUNE", s_font_label, col_green);
+    const int pcx   = DISP_X + DISP_W / 2;
+    const int pcy   = DISP_Y + DISP_H - 60;
+    const int arc_r = 54;
 
-    // Separator (approximate position — label font ~10pt → ~13px)
+    // Title centered
+    {
+        SIZE sz = {};
+        SelectObject(mem_dc, s_font_label);
+        GetTextExtentPoint32A(mem_dc, "SILVERTUNE", 10, &sz);
+        draw_text_dc(mem_dc, pcx - sz.cx / 2, DISP_Y + 4, "SILVERTUNE", s_font_label, col_green);
+    }
+
+    // Separator
     {
         int sy = DISP_Y + 4 + 14;
         HPEN pen = CreatePen(PS_SOLID, 1, col_dim_green);
         HPEN old = (HPEN)SelectObject(mem_dc, pen);
-        MoveToEx(mem_dc, DISP_X + 1, sy, nullptr);
-        LineTo(mem_dc, DISP_X + DISP_W - 2, sy);
+        MoveToEx(mem_dc, DISP_X + 2, sy, nullptr);
+        LineTo(mem_dc, DISP_X + DISP_W - 3, sy);
         SelectObject(mem_dc, old);
         DeleteObject(pen);
     }
 
-    // DET label + note
+    // DET label + detected note (above arc, centered)
     {
-        draw_text_dc(mem_dc, DISP_X + 4, DISP_Y + 24, "DET", s_font_label, col_label);
         int det = p->gui_det.load(std::memory_order_relaxed);
         const char *det_str = (det >= 0) ? NOTE_NAMES[det % 12] : "--";
-        draw_text_dc(mem_dc, DISP_X + 4, DISP_Y + 40, det_str, s_font_note, col_green);
+        SIZE sl = {}, sn = {};
+        SelectObject(mem_dc, s_font_label);
+        GetTextExtentPoint32A(mem_dc, "DET", 3, &sl);
+        SelectObject(mem_dc, s_font_value);
+        GetTextExtentPoint32A(mem_dc, det_str, (int)strlen(det_str), &sn);
+        draw_text_dc(mem_dc, pcx - sl.cx / 2, DISP_Y + 22, "DET", s_font_label, col_label);
+        draw_text_dc(mem_dc, pcx - sn.cx / 2, DISP_Y + 35, det_str, s_font_value, col_white);
     }
 
-    // CORR label + note
+    // Read pitch state, update needle animation
+    float dmidi  = p->gui_det_midi.load(std::memory_order_relaxed);
+    int   corr   = p->gui_corr.load(std::memory_order_relaxed);
+    bool  active = (corr >= 0 && dmidi >= 0.0f);
     {
-        draw_text_dc(mem_dc, DISP_X + 4, DISP_Y + 78, "CORR", s_font_label, col_label);
-        int corr = p->gui_corr.load(std::memory_order_relaxed);
-        const char *corr_str = (corr >= 0) ? NOTE_NAMES[corr % 12] : "--";
-        draw_text_dc(mem_dc, DISP_X + 4, DISP_Y + 94, corr_str, s_font_note, col_green);
-    }
-
-    // RMS bar
-    {
-        float rms = p->gui_rms.load(std::memory_order_relaxed);
-        float rms_c = rms > 1.0f ? 1.0f : rms;
-        int bar_x = DISP_X + 4;
-        int bar_y = DISP_Y + DISP_H - 16;
-        int bar_max_w = DISP_W - 8;
-        int bar_h = 8;
-        fill_rect_dc(mem_dc, bar_x, bar_y, bar_max_w, bar_h, col_track);
-        if (rms_c > 0.0f) {
-            int fw = (int)(rms_c * bar_max_w);
-            if (fw > 0) fill_rect_dc(mem_dc, bar_x, bar_y, fw, bar_h, col_fill);
+        uint32_t frame = p->gui_det_frame.load(std::memory_order_relaxed);
+        if (active && frame != p->gui.last_det_frame) {
+            float raw = (dmidi - (float)corr) * 100.0f;
+            p->gui.disp_cents = raw > 50.0f ? 50.0f : (raw < -50.0f ? -50.0f : raw);
+            p->gui.last_det_frame = frame;
+        } else {
+            p->gui.disp_cents *= 0.5f;
         }
+    }
+    float dc = p->gui.disp_cents;
+
+    // Arc: upper semicircle as polyline
+    {
+        POINT pts[49];
+        for (int i = 0; i <= 48; ++i) {
+            double a = (double)i * M_PI / 48.0;
+            pts[i].x = pcx + (int)(arc_r * std::cos(a));
+            pts[i].y = pcy - (int)(arc_r * std::sin(a));
+        }
+        HPEN pen = CreatePen(PS_SOLID, 1, col_dim_green);
+        HPEN old = (HPEN)SelectObject(mem_dc, pen);
+        Polyline(mem_dc, pts, 49);
+        SelectObject(mem_dc, old);
+        DeleteObject(pen);
+    }
+
+    // Tick marks at 0, ±25, ±50 cents
+    {
+        struct { int cv; int len; } ticks[] = {
+            {0, 12}, {-25, 7}, {25, 7}, {-50, 5}, {50, 5}
+        };
+        for (auto &tk : ticks) {
+            double a  = (90.0 - tk.cv * 90.0 / 50.0) * M_PI / 180.0;
+            double ca = std::cos(a), sa = std::sin(a);
+            int ix = pcx + (int)((arc_r - tk.len) * ca);
+            int iy = pcy - (int)((arc_r - tk.len) * sa);
+            int ox = pcx + (int)((arc_r + 3)      * ca);
+            int oy = pcy - (int)((arc_r + 3)      * sa);
+            COLORREF tc = (tk.cv == 0) ? col_dim_green : col_label;
+            HPEN pen = CreatePen(PS_SOLID, 1, tc);
+            HPEN old = (HPEN)SelectObject(mem_dc, pen);
+            MoveToEx(mem_dc, ix, iy, nullptr);
+            LineTo(mem_dc, ox, oy);
+            SelectObject(mem_dc, old);
+            DeleteObject(pen);
+        }
+    }
+
+    // Needle + pivot dot
+    {
+        double a  = (90.0 - (double)dc * 90.0 / 50.0) * M_PI / 180.0;
+        int nx    = pcx + (int)((arc_r - 5) * std::cos(a));
+        int ny    = pcy - (int)((arc_r - 5) * std::sin(a));
+        COLORREF nc = active ? (std::fabs(dc) < 5.0f ? col_green : col_white) : col_label;
+        HPEN pen = CreatePen(PS_SOLID, 1, nc);
+        HPEN old = (HPEN)SelectObject(mem_dc, pen);
+        MoveToEx(mem_dc, pcx, pcy, nullptr);
+        LineTo(mem_dc, nx, ny);
+        SelectObject(mem_dc, old);
+        DeleteObject(pen);
+        fill_circle_dc(mem_dc, nx,  ny,  2, nc);
+        fill_circle_dc(mem_dc, pcx, pcy, 2, col_dim_green);
+    }
+
+    // CORR note below pivot (centered)
+    {
+        const char *corr_str = (corr >= 0) ? NOTE_NAMES[corr % 12] : "--";
+        SIZE sn = {};
+        SelectObject(mem_dc, s_font_value);
+        GetTextExtentPoint32A(mem_dc, corr_str, (int)strlen(corr_str), &sn);
+        draw_text_dc(mem_dc, pcx - sn.cx / 2, pcy + 14, corr_str, s_font_value, col_white);
+    }
+
+    // Cents value below CORR note
+    if (active) {
+        float raw = (dmidi - (float)corr) * 100.0f;
+        char cbuf[16];
+        snprintf(cbuf, sizeof(cbuf), "%+.0fc", raw);
+        SIZE sc = {};
+        SelectObject(mem_dc, s_font_label);
+        GetTextExtentPoint32A(mem_dc, cbuf, (int)strlen(cbuf), &sc);
+        COLORREF cc = std::fabs(dc) < 5.0f ? col_green : col_label;
+        draw_text_dc(mem_dc, pcx - sc.cx / 2, pcy + 30, cbuf, s_font_label, cc);
     }
 
     // --- KEY stepper ---

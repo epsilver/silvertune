@@ -185,73 +185,136 @@ static CGFloat ct_text_width(const char *str, CTFontRef font) {
     // Background
     cgfill(ctx, 0, 0, GUI_W, GUI_H, R(COL_BG), G(COL_BG), B(COL_BG));
 
-    // --- Left display panel ---
+    // --- Left display panel (OLED arc needle meter) ---
     cgrect(ctx, DISP_X, DISP_Y, DISP_W, DISP_H,
            R(COL_DIM_GREEN), G(COL_DIM_GREEN), B(COL_DIM_GREEN));
     cgfill(ctx, DISP_X + 1, DISP_Y + 1, DISP_W - 2, DISP_H - 2,
            R(COL_DISPLAY_BG), G(COL_DISPLAY_BG), B(COL_DISPLAY_BG));
 
-    // In CoreText with isFlipped=YES the y is top of baseline area.
-    // We pass y as top-left of text bounding box and add ascent for baseline.
+    const CGFloat pcx   = DISP_X + DISP_W / 2.0;
+    const CGFloat pcy   = DISP_Y + DISP_H - 60.0;
+    const CGFloat arc_r = 54.0;
+
     CGFloat font_label_ascent = CTFontGetAscent(_fontLabel);
     CGFloat font_label_height = CTFontGetAscent(_fontLabel) + CTFontGetDescent(_fontLabel) + CTFontGetLeading(_fontLabel);
     CGFloat font_value_ascent = CTFontGetAscent(_fontValue);
-    CGFloat font_note_ascent  = CTFontGetAscent(_fontNote);
-    CGFloat font_note_height  = CTFontGetAscent(_fontNote) + CTFontGetDescent(_fontNote);
+    CGFloat font_value_height = CTFontGetAscent(_fontValue) + CTFontGetDescent(_fontValue);
 
-    // Title
-    cgtext(ctx, DISP_X + 4, DISP_Y + 4 + font_label_ascent, "SILVERTUNE",
-           _fontLabel, R(COL_GREEN), G(COL_GREEN), B(COL_GREEN));
+    // Title centered
+    {
+        CGFloat tw = ct_text_width("SILVERTUNE", _fontLabel);
+        cgtext(ctx, pcx - tw / 2.0, DISP_Y + 5 + font_label_ascent, "SILVERTUNE",
+               _fontLabel, R(COL_GREEN), G(COL_GREEN), B(COL_GREEN));
+    }
 
     // Separator
-    {
-        CGFloat sy = DISP_Y + 4 + font_label_height + 4;
-        cgline(ctx, DISP_X + 1, sy, DISP_X + DISP_W - 2, sy,
-               R(COL_DIM_GREEN), G(COL_DIM_GREEN), B(COL_DIM_GREEN));
-    }
+    CGFloat sep_y = DISP_Y + 5 + font_label_height + 3;
+    cgline(ctx, DISP_X + 2, sep_y, DISP_X + DISP_W - 3, sep_y,
+           R(COL_DIM_GREEN), G(COL_DIM_GREEN), B(COL_DIM_GREEN));
 
-    // DET label + note
+    // DET label + detected note (above arc, centered)
     {
-        CGFloat sep_y = DISP_Y + 4 + font_label_height + 4;
-        CGFloat det_label_y = sep_y + 8 + font_label_ascent;
-        cgtext(ctx, DISP_X + 4, det_label_y, "DET",
-               _fontLabel, R(COL_LABEL), G(COL_LABEL), B(COL_LABEL));
-
         int det = p->gui_det.load(std::memory_order_relaxed);
         const char *det_str = (det >= 0) ? NOTE_NAMES[det % 12] : "--";
-        CGFloat note_y = det_label_y + font_label_height + 2 + font_note_ascent;
-        cgtext(ctx, DISP_X + 4, note_y, det_str,
-               _fontNote, R(COL_GREEN), G(COL_GREEN), B(COL_GREEN));
-    }
-
-    // CORR label + note
-    {
-        CGFloat sep_y = DISP_Y + 4 + font_label_height + 4;
-        CGFloat base  = sep_y + 8 + font_label_height + 2 + font_note_height + 8;
-        cgtext(ctx, DISP_X + 4, base + font_label_ascent, "CORR",
+        CGFloat y = sep_y + 4;
+        CGFloat lw = ct_text_width("DET", _fontLabel);
+        cgtext(ctx, pcx - lw / 2.0, y + font_label_ascent, "DET",
                _fontLabel, R(COL_LABEL), G(COL_LABEL), B(COL_LABEL));
-
-        int corr = p->gui_corr.load(std::memory_order_relaxed);
-        const char *corr_str = (corr >= 0) ? NOTE_NAMES[corr % 12] : "--";
-        cgtext(ctx, DISP_X + 4, base + font_label_height + 2 + font_note_ascent, corr_str,
-               _fontNote, R(COL_GREEN), G(COL_GREEN), B(COL_GREEN));
+        y += font_label_height + 2;
+        CGFloat nw = ct_text_width(det_str, _fontValue);
+        cgtext(ctx, pcx - nw / 2.0, y + font_value_ascent, det_str,
+               _fontValue, 1.0, 1.0, 1.0);
     }
 
-    // RMS bar
+    // Read pitch state, update needle animation
+    float dmidi  = p->gui_det_midi.load(std::memory_order_relaxed);
+    int   corr   = p->gui_corr.load(std::memory_order_relaxed);
+    bool  active = (corr >= 0 && dmidi >= 0.0f);
     {
-        float rms = p->gui_rms.load(std::memory_order_relaxed);
-        float rc = rms > 1.0f ? 1.0f : rms;
-        CGFloat bar_x = DISP_X + 4;
-        CGFloat bar_y = DISP_Y + DISP_H - 16;
-        CGFloat bar_max_w = DISP_W - 8;
-        CGFloat bar_h = 8;
-        cgfill(ctx, bar_x, bar_y, bar_max_w, bar_h,
-               R(COL_TRACK), G(COL_TRACK), B(COL_TRACK));
-        if (rc > 0.0f) {
-            CGFloat fw = rc * bar_max_w;
-            cgfill(ctx, bar_x, bar_y, fw, bar_h,
-                   R(COL_FILL), G(COL_FILL), B(COL_FILL));
+        uint32_t frame = p->gui_det_frame.load(std::memory_order_relaxed);
+        if (active && frame != p->gui.last_det_frame) {
+            float raw = (dmidi - (float)corr) * 100.0f;
+            p->gui.disp_cents = raw > 50.0f ? 50.0f : (raw < -50.0f ? -50.0f : raw);
+            p->gui.last_det_frame = frame;
+        } else {
+            p->gui.disp_cents *= 0.5f;
         }
+    }
+    float dc = p->gui.disp_cents;
+
+    // Arc: upper semicircle as polyline (smooth with CG anti-aliasing)
+    CGContextSetRGBStrokeColor(ctx, R(COL_DIM_GREEN), G(COL_DIM_GREEN), B(COL_DIM_GREEN), 1.0);
+    CGContextSetLineWidth(ctx, 1.0);
+    CGContextBeginPath(ctx);
+    for (int i = 0; i <= 48; ++i) {
+        double a = (double)i * M_PI / 48.0;
+        CGFloat x = pcx + (CGFloat)(arc_r * std::cos(a));
+        CGFloat y = pcy - (CGFloat)(arc_r * std::sin(a));
+        if (i == 0) CGContextMoveToPoint(ctx, x, y);
+        else        CGContextAddLineToPoint(ctx, x, y);
+    }
+    CGContextStrokePath(ctx);
+
+    // Tick marks at 0, ±25, ±50 cents
+    {
+        struct { int cv; int len; } ticks[] = {
+            {0, 12}, {-25, 7}, {25, 7}, {-50, 5}, {50, 5}
+        };
+        for (auto &tk : ticks) {
+            double a  = (90.0 - tk.cv * 90.0 / 50.0) * M_PI / 180.0;
+            double ca = std::cos(a), sa = std::sin(a);
+            CGFloat ix = pcx + (CGFloat)((arc_r - tk.len) * ca);
+            CGFloat iy = pcy - (CGFloat)((arc_r - tk.len) * sa);
+            CGFloat ox = pcx + (CGFloat)((arc_r + 3)      * ca);
+            CGFloat oy = pcy - (CGFloat)((arc_r + 3)      * sa);
+            if (tk.cv == 0)
+                cgline(ctx, ix, iy, ox, oy, R(COL_DIM_GREEN), G(COL_DIM_GREEN), B(COL_DIM_GREEN));
+            else
+                cgline(ctx, ix, iy, ox, oy, R(COL_LABEL), G(COL_LABEL), B(COL_LABEL));
+        }
+    }
+
+    // Needle from pivot to arc, smoothed
+    {
+        double a   = (90.0 - (double)dc * 90.0 / 50.0) * M_PI / 180.0;
+        CGFloat nx = pcx + (CGFloat)((arc_r - 5) * std::cos(a));
+        CGFloat ny = pcy - (CGFloat)((arc_r - 5) * std::sin(a));
+        bool in_tune = std::fabs(dc) < 5.0f;
+        if (!active)
+            cgline(ctx, pcx, pcy, nx, ny, R(COL_LABEL), G(COL_LABEL), B(COL_LABEL));
+        else if (in_tune)
+            cgline(ctx, pcx, pcy, nx, ny, R(COL_GREEN), G(COL_GREEN), B(COL_GREEN));
+        else
+            cgline(ctx, pcx, pcy, nx, ny, 1.0, 1.0, 1.0);
+
+        CGFloat nr = active ? (in_tune ? R(COL_GREEN) : 1.0) : R(COL_LABEL);
+        CGFloat ng = active ? (in_tune ? G(COL_GREEN) : 1.0) : G(COL_LABEL);
+        CGFloat nb = active ? (in_tune ? B(COL_GREEN) : 1.0) : B(COL_LABEL);
+        cgcircle(ctx, nx,  ny,  2.0, nr, ng, nb);
+        cgcircle(ctx, pcx, pcy, 2.0, R(COL_DIM_GREEN), G(COL_DIM_GREEN), B(COL_DIM_GREEN));
+    }
+
+    // CORR note below pivot (centered)
+    {
+        const char *corr_str = (corr >= 0) ? NOTE_NAMES[corr % 12] : "--";
+        CGFloat nw = ct_text_width(corr_str, _fontValue);
+        cgtext(ctx, pcx - nw / 2.0, pcy + 14 + font_value_ascent, corr_str,
+               _fontValue, 1.0, 1.0, 1.0);
+    }
+
+    // Cents value below CORR note
+    if (active) {
+        float raw = (dmidi - (float)corr) * 100.0f;
+        char cbuf[16];
+        snprintf(cbuf, sizeof(cbuf), "%+.0fc", raw);
+        CGFloat cw = ct_text_width(cbuf, _fontLabel);
+        bool in_tune = std::fabs(dc) < 5.0f;
+        cgtext(ctx, pcx - cw / 2.0,
+               pcy + 14 + font_value_height + 4 + font_label_ascent,
+               cbuf, _fontLabel,
+               in_tune ? R(COL_GREEN) : R(COL_LABEL),
+               in_tune ? G(COL_GREEN) : G(COL_LABEL),
+               in_tune ? B(COL_GREEN) : B(COL_LABEL));
     }
 
     // --- KEY stepper ---

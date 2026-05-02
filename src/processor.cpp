@@ -127,8 +127,10 @@ clap_process_status silvertune_process(SilvertunePlugin *p, const clap_process_t
                 p->held_ratio = std::clamp(ratio, 0.5f, 2.0f);
 
                 // Update GUI display state
-                p->gui_det.store(det_note_int, std::memory_order_relaxed);
-                p->gui_corr.store(nearest,      std::memory_order_relaxed);
+                p->gui_det.store(det_note_int,        std::memory_order_relaxed);
+                p->gui_corr.store(nearest,             std::memory_order_relaxed);
+                p->gui_det_midi.store(p->locked_midi,  std::memory_order_relaxed);
+                p->gui_det_frame.fetch_add(1,          std::memory_order_relaxed);
             } else if (conf < 0.35f) {
                 if (++p->low_conf_count >= 3) {
                     p->locked_midi    = -1.0f;
@@ -136,6 +138,7 @@ clap_process_status silvertune_process(SilvertunePlugin *p, const clap_process_t
                     p->held_ratio     = 1.0f;
                     p->gui_det.store(-1, std::memory_order_relaxed);
                     p->gui_corr.store(-1, std::memory_order_relaxed);
+                    p->gui_det_midi.store(-1.0f, std::memory_order_relaxed);
                 }
             }
         }
