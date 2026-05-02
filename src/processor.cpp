@@ -119,20 +119,35 @@ clap_process_status silvertune_process(SilvertunePlugin *p, const clap_process_t
                 if (!stays_locked) p->locked_midi = det_midi;
                 p->low_conf_count = 0;
 
-                int nearest = quantize_to_scale(
-                    static_cast<int>(std::round(p->locked_midi)), root_key, scale);
+                int det_note_int  = static_cast<int>(std::round(p->locked_midi));
+                int nearest = quantize_to_scale(det_note_int, root_key, scale);
                 float target_hz = midi_to_hz(static_cast<float>(nearest));
                 float ratio = target_hz / hz;
                 ratio = 1.0f + (ratio - 1.0f) * speed;
                 p->held_ratio = std::clamp(ratio, 0.5f, 2.0f);
+
+                // Update GUI display state
+                p->gui_det.store(det_note_int, std::memory_order_relaxed);
+                p->gui_corr.store(nearest,      std::memory_order_relaxed);
             } else if (conf < 0.35f) {
                 if (++p->low_conf_count >= 3) {
                     p->locked_midi    = -1.0f;
                     p->low_conf_count = 0;
                     p->held_ratio     = 1.0f;
+                    p->gui_det.store(-1, std::memory_order_relaxed);
+                    p->gui_corr.store(-1, std::memory_order_relaxed);
                 }
             }
         }
+    }
+
+    // Compute RMS for GUI metering
+    {
+        float sum_sq = 0.0f;
+        for (uint32_t i = 0; i < frames; ++i)
+            sum_sq += p->mono_buf[i] * p->mono_buf[i];
+        float rms = std::sqrt(sum_sq / static_cast<float>(frames));
+        p->gui_rms.store(rms, std::memory_order_relaxed);
     }
 
     float pitch_ratio = p->held_ratio;

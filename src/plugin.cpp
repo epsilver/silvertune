@@ -1,4 +1,6 @@
 #include "silvertune.h"
+#include "gui.h"
+#include <clap/ext/gui.h>
 #include <cstring>
 #include <new>
 
@@ -119,15 +121,126 @@ static clap_process_status plugin_process(const clap_plugin_t *plugin,
     return silvertune_process(p, process);
 }
 
+// --- GUI extension ---
+
+static bool gui_is_api_supported(const clap_plugin_t *, const char *api, bool is_floating) {
+    if (is_floating) return false;
+#if defined(_WIN32)
+    return strcmp(api, CLAP_WINDOW_API_WIN32) == 0;
+#elif defined(__APPLE__)
+    return strcmp(api, CLAP_WINDOW_API_COCOA) == 0;
+#else
+    return strcmp(api, CLAP_WINDOW_API_X11) == 0;
+#endif
+}
+
+static bool gui_get_preferred_api(const clap_plugin_t *, const char **api, bool *is_floating) {
+    *is_floating = false;
+#if defined(_WIN32)
+    *api = CLAP_WINDOW_API_WIN32;
+#elif defined(__APPLE__)
+    *api = CLAP_WINDOW_API_COCOA;
+#else
+    *api = CLAP_WINDOW_API_X11;
+#endif
+    return true;
+}
+
+static bool gui_create_cb(const clap_plugin_t *plugin, const char *, bool is_floating) {
+    if (is_floating) return false;
+    auto *p = static_cast<SilvertunePlugin *>(plugin->plugin_data);
+    p->host_params = static_cast<const clap_host_params_t *>(
+        p->host->get_extension(p->host, CLAP_EXT_PARAMS));
+    gui_create(p);
+    return true;
+}
+
+static void gui_destroy_cb(const clap_plugin_t *plugin) {
+    auto *p = static_cast<SilvertunePlugin *>(plugin->plugin_data);
+    gui_destroy(p);
+}
+
+static bool gui_set_scale_cb(const clap_plugin_t *plugin, double scale) {
+    auto *p = static_cast<SilvertunePlugin *>(plugin->plugin_data);
+    gui_set_scale(p, scale);
+    return true;
+}
+
+static bool gui_get_size(const clap_plugin_t *, uint32_t *width, uint32_t *height) {
+    *width  = GUI_W;
+    *height = GUI_H;
+    return true;
+}
+
+static bool gui_can_resize(const clap_plugin_t *) { return false; }
+
+static bool gui_get_resize_hints(const clap_plugin_t *, clap_gui_resize_hints_t *) {
+    return false;
+}
+
+static bool gui_adjust_size(const clap_plugin_t *, uint32_t *, uint32_t *) { return true; }
+static bool gui_set_size(const clap_plugin_t *, uint32_t, uint32_t) { return true; }
+
+static bool gui_set_parent_cb(const clap_plugin_t *plugin, const clap_window_t *window) {
+    auto *p = static_cast<SilvertunePlugin *>(plugin->plugin_data);
+    void *native = nullptr;
+#if defined(_WIN32)
+    native = window->win32;
+#elif defined(__APPLE__)
+    native = window->cocoa;
+#else
+    native = reinterpret_cast<void *>(static_cast<uintptr_t>(window->x11));
+#endif
+    return gui_set_parent(p, native);
+}
+
+static bool gui_set_transient(const clap_plugin_t *, const clap_window_t *) { return true; }
+static void gui_suggest_title(const clap_plugin_t *, const char *) {}
+
+static bool gui_show_cb(const clap_plugin_t *plugin) {
+    auto *p = static_cast<SilvertunePlugin *>(plugin->plugin_data);
+    gui_show(p);
+    return true;
+}
+
+static bool gui_hide_cb(const clap_plugin_t *plugin) {
+    auto *p = static_cast<SilvertunePlugin *>(plugin->plugin_data);
+    gui_hide(p);
+    return true;
+}
+
+static const clap_plugin_gui_t silvertune_gui = {
+    .is_api_supported  = gui_is_api_supported,
+    .get_preferred_api = gui_get_preferred_api,
+    .create            = gui_create_cb,
+    .destroy           = gui_destroy_cb,
+    .set_scale         = gui_set_scale_cb,
+    .get_size          = gui_get_size,
+    .can_resize        = gui_can_resize,
+    .get_resize_hints  = gui_get_resize_hints,
+    .adjust_size       = gui_adjust_size,
+    .set_size          = gui_set_size,
+    .set_parent        = gui_set_parent_cb,
+    .set_transient     = gui_set_transient,
+    .suggest_title     = gui_suggest_title,
+    .show              = gui_show_cb,
+    .hide              = gui_hide_cb,
+};
+
 static const void *plugin_get_extension(const clap_plugin_t *, const char *id) {
     if (strcmp(id, CLAP_EXT_PARAMS) == 0)       return &silvertune_params;
     if (strcmp(id, CLAP_EXT_STATE) == 0)        return &silvertune_state;
     if (strcmp(id, CLAP_EXT_AUDIO_PORTS) == 0)  return &silvertune_audio_ports;
     if (strcmp(id, CLAP_EXT_LATENCY) == 0)      return &silvertune_latency;
+    if (strcmp(id, CLAP_EXT_GUI) == 0)          return &silvertune_gui;
     return nullptr;
 }
 
-static void plugin_on_main_thread(const clap_plugin_t *) {}
+static void plugin_on_main_thread(const clap_plugin_t *plugin) {
+    auto *p = static_cast<SilvertunePlugin *>(plugin->plugin_data);
+    if (p->host_params)
+        p->host_params->request_flush(p->host);
+}
 
 // --- Plugin creation ---
 

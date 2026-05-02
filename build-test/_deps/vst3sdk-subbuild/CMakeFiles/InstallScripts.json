@@ -1,0 +1,7 @@
+{
+	"InstallScripts" : 
+	[
+		"/home/alexis/dev/silvertune/build-test/_deps/vst3sdk-subbuild/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

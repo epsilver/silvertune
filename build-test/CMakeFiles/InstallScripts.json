@@ -1,0 +1,9 @@
+{
+	"InstallScripts" : 
+	[
+		"/home/alexis/dev/silvertune/build-test/cmake_install.cmake",
+		"/home/alexis/dev/silvertune/build-test/libs/clap-wrapper/cmake_install.cmake",
+		"/home/alexis/dev/silvertune/build-test/libs/clap-wrapper/base-sdk-clap/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

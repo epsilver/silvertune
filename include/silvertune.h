@@ -5,7 +5,9 @@
 #include <vector>
 
 #include <clap/clap.h>
+#include <clap/ext/params.h>
 #include "yin.h"
+#include "gui.h"
 
 // Parameter IDs
 enum {
@@ -82,6 +84,13 @@ struct SilvertunePlugin {
 
     // Latency
     uint32_t total_latency = 0;
+
+    // GUI state
+    GuiState gui;
+    std::atomic<int>   gui_det{-1};
+    std::atomic<int>   gui_corr{-1};
+    std::atomic<float> gui_rms{0.0f};
+    const clap_host_params_t *host_params = nullptr;
 };
 
 // CLAP callbacks

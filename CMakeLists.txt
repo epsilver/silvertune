@@ -27,6 +27,23 @@ add_library(silvertune-impl STATIC
     src/yin.cpp
 )
 
+if(WIN32)
+    target_sources(silvertune-impl PRIVATE src/gui_win32.cpp)
+elseif(APPLE)
+    target_sources(silvertune-impl PRIVATE src/gui_cocoa.mm)
+    target_link_libraries(silvertune-impl PUBLIC
+        "-framework Cocoa"
+        "-framework CoreGraphics"
+        "-framework CoreText"
+    )
+else()
+    target_sources(silvertune-impl PRIVATE src/gui_x11.cpp)
+    find_package(X11 REQUIRED)
+    target_link_libraries(silvertune-impl PUBLIC ${X11_LIBRARIES})
+    target_include_directories(silvertune-impl PUBLIC ${X11_INCLUDE_DIR})
+    target_link_libraries(silvertune-impl PUBLIC pthread)
+endif()
+
 target_include_directories(silvertune-impl PUBLIC
     ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_SOURCE_DIR}/clap/include
