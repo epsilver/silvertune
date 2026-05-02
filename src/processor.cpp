@@ -128,10 +128,12 @@ clap_process_status silvertune_process(SilvertunePlugin *p, const clap_process_t
             if (hz > 50.0f && hz < 2000.0f && conf > 0.5f) {
                 float det_midi = hz_to_midi(hz);
 
-                // Lock-once: grab midi on first confident hop, never update until released
-                if (p->locked_midi < 0.0f) {
-                    p->locked_midi   = det_midi;
-                    p->hold_counter  = 0.0f;
+                // Update lock when: no lock yet, or pitch moved >0.4 semitones (new note)
+                bool stays_locked = p->locked_midi >= 0.0f &&
+                                    std::fabs(det_midi - p->locked_midi) < 0.4f;
+                if (!stays_locked) {
+                    p->locked_midi  = det_midi;
+                    p->hold_counter = 0.0f;
                 }
                 p->low_conf_count = 0;
 
