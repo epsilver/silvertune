@@ -1,3 +1,0 @@
-/home/alexis/dev/silvertune/build-test/_deps/vst3sdk-subbuild/CMakeFiles/vst3sdk-populate.dir
-/home/alexis/dev/silvertune/build-test/_deps/vst3sdk-subbuild/CMakeFiles/edit_cache.dir
-/home/alexis/dev/silvertune/build-test/_deps/vst3sdk-subbuild/CMakeFiles/rebuild_cache.dir
