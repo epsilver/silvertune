@@ -9,74 +9,75 @@
 // Layout constants
 // ---------------------------------------------------------------------------
 
-static constexpr int GUI_W = 480;
-static constexpr int GUI_H = 200;
+static constexpr int GUI_W = 560;
+static constexpr int GUI_H = 240;
 
 // Header bar
-static constexpr int HDR_H = 20;
+static constexpr int HDR_H = 24;
 
 // OLED display panel (left)
 static constexpr int DISP_X = 8;
-static constexpr int DISP_Y = 22;
-static constexpr int DISP_W = 155;
-static constexpr int DISP_H = 172;
+static constexpr int DISP_Y = 26;
+static constexpr int DISP_W = 185;
+static constexpr int DISP_H = 208;
 
 // Arc needle (within OLED)
-static constexpr int ARC_PCX = DISP_X + DISP_W / 2;   // = 85
-static constexpr int ARC_PCY = DISP_Y + DISP_H - 52;  // = 142
-static constexpr int ARC_R   = 56;
+static constexpr int ARC_PCX = DISP_X + DISP_W / 2;   // = 100
+static constexpr int ARC_PCY = DISP_Y + DISP_H - 66;  // = 168
+static constexpr int ARC_R   = 70;
 
 // Piano keyboard (within OLED)
-static constexpr int PIANO_KX   = DISP_X + 4;   // = 12
-static constexpr int PIANO_KY   = DISP_Y + 8;   // = 30
-static constexpr int PIANO_WK_W = 20;
-static constexpr int PIANO_WK_H = 16;
-static constexpr int PIANO_BK_W = 12;
-static constexpr int PIANO_BK_H = 10;
+static constexpr int PIANO_KX       = DISP_X + 4;   // = 12
+static constexpr int PIANO_KY       = DISP_Y + 8;   // = 34
+static constexpr int PIANO_WK_W     = 24;
+static constexpr int PIANO_WK_H     = 20;
+static constexpr int PIANO_BK_W     = 14;
+static constexpr int PIANO_BK_H     = 12;
+static constexpr int PIANO_BK_OFFSET = 17; // px from white key left edge to black key
 
 // Right control panel
-static constexpr int CTRL_X = 171;
-static constexpr int CTRL_W = 301;
+static constexpr int CTRL_X = DISP_X + DISP_W + 8;  // = 201
+static constexpr int CTRL_W = GUI_W - 8 - CTRL_X;   // = 351
 
 // KEY stepper (left section of controls)
-static constexpr int KEY_LABEL_X  = 175;
-static constexpr int KEY_LABEL_Y  = 30;
-static constexpr int KEY_BTN_Y    = 44;
-static constexpr int KEY_LEFT_X   = 175;
-static constexpr int KEY_TEXT_X   = 197;   // 175 + 16(arrow) + 6(gap)
-static constexpr int KEY_RIGHT_X  = 229;   // 197 + max "A#"(26px at 2x) + 6
+static constexpr int KEY_LABEL_X  = 205;
+static constexpr int KEY_LABEL_Y  = 36;
+static constexpr int KEY_BTN_Y    = 52;
+static constexpr int KEY_LEFT_X   = 205;
+static constexpr int KEY_TEXT_X   = 227;   // KEY_LEFT_X + 16(arrow) + 6(gap)
+static constexpr int KEY_RIGHT_X  = 249;   // KEY_TEXT_X + 14(max "A#") + 8(gap)
 
 // SCALE stepper (right section of controls)
-static constexpr int SCALE_LABEL_X = 317;
-static constexpr int SCALE_LABEL_Y = 30;
-static constexpr int SCALE_BTN_Y   = 44;
-static constexpr int SCALE_LEFT_X  = 317;
-static constexpr int SCALE_TEXT_X  = 339;
-static constexpr int SCALE_RIGHT_X = 451;  // 339 + "Chromatic"(62px at 1x) + 6 + buffer
+static constexpr int SCALE_LABEL_X = 375;
+static constexpr int SCALE_LABEL_Y = 36;
+static constexpr int SCALE_BTN_Y   = 52;
+static constexpr int SCALE_LEFT_X  = 375;
+static constexpr int SCALE_TEXT_X  = 397;   // SCALE_LEFT_X + 16 + 6
+static constexpr int SCALE_RIGHT_X = 466;   // SCALE_TEXT_X + "Chromatic"(63px) + 6
 
 // Stepper button size
 static constexpr int STEPPER_BTN_W = 16;
 static constexpr int STEPPER_BTN_H = 16;
 
 // WIDE slider
-static constexpr int WIDE_LABEL_X  = 175;
-static constexpr int WIDE_LABEL_Y  = 76;
-static constexpr int WIDE_PCT_X    = 434;
-static constexpr int WIDE_PCT_Y    = 76;
-static constexpr int WIDE_TRACK_X  = 175;
-static constexpr int WIDE_TRACK_Y  = 88;
-static constexpr int WIDE_TRACK_W  = 293;
-static constexpr int WIDE_TRACK_H  = 3;   // thin track
-static constexpr int SLIDER_THUMB_R = 6;
+static constexpr int WIDE_LABEL_X  = 205;
+static constexpr int WIDE_LABEL_Y  = 92;
+static constexpr int WIDE_PCT_X    = GUI_W - 8;   // = 552
+static constexpr int WIDE_PCT_Y    = 92;
+static constexpr int WIDE_TRACK_X  = 205;
+static constexpr int WIDE_TRACK_Y  = 106;
+static constexpr int WIDE_TRACK_W  = GUI_W - 8 - 205;  // = 347
+static constexpr int WIDE_TRACK_H  = 3;
+static constexpr int SLIDER_THUMB_R = 7;
 
 // TUNE slider
-static constexpr int TUNE_LABEL_X  = 175;
-static constexpr int TUNE_LABEL_Y  = 130;
-static constexpr int TUNE_PCT_X    = 434;
-static constexpr int TUNE_PCT_Y    = 130;
-static constexpr int TUNE_TRACK_X  = 175;
-static constexpr int TUNE_TRACK_Y  = 142;
-static constexpr int TUNE_TRACK_W  = 293;
+static constexpr int TUNE_LABEL_X  = 205;
+static constexpr int TUNE_LABEL_Y  = 156;
+static constexpr int TUNE_PCT_X    = GUI_W - 8;   // = 552
+static constexpr int TUNE_PCT_Y    = 156;
+static constexpr int TUNE_TRACK_X  = 205;
+static constexpr int TUNE_TRACK_Y  = 170;
+static constexpr int TUNE_TRACK_W  = GUI_W - 8 - 205;  // = 347
 static constexpr int TUNE_TRACK_H  = 3;
 
 // ---------------------------------------------------------------------------
@@ -182,7 +183,7 @@ static inline int hit_piano_key(int mx, int my) {
         return -1;
     struct BkDef { int note, dx; };
     static const BkDef BK[5] = {
-        {1, 14}, {3, 34}, {6, 74}, {8, 94}, {10, 114}
+        {1, 17}, {3, 41}, {6, 89}, {8, 113}, {10, 137}
     };
     static const int WK[7] = { 0, 2, 4, 5, 7, 9, 11 };
     // Black keys only occupy the top portion

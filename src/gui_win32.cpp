@@ -224,7 +224,7 @@ static void do_paint(HWND hwnd, HDC hdc) {
         static const int WK[7] = { 0, 2, 4, 5, 7, 9, 11 };
         struct BkDef { int note, dx; };
         static const BkDef BK[5] = {
-            {1, 14}, {3, 34}, {6, 74}, {8, 94}, {10, 114}
+            {1, 17}, {3, 41}, {6, 89}, {8, 113}, {10, 137}
         };
         int hi = (corr >= 0) ? corr % 12 : -1;
 

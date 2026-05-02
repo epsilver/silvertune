@@ -1,10 +1,9 @@
 #if defined(__APPLE__)
 
 #import <Cocoa/Cocoa.h>
-#include <CoreText/CoreText.h>
 #include <CoreGraphics/CoreGraphics.h>
 #include "gui.h"
-#include "inter_fonts.h"
+#include "font6x8.h"
 #include "silvertune.h"
 #include <cmath>
 #include <cstdio>
@@ -42,7 +41,6 @@ static inline void cgcircle(CGContextRef ctx, CGFloat cx, CGFloat cy, CGFloat r,
     CGContextFillEllipseInRect(ctx, CGRectMake(cx - r, cy - r, r * 2, r * 2));
 }
 
-// Draw a triangle using CGPath
 static inline void cg_left_triangle(CGContextRef ctx, CGFloat bx, CGFloat by,
                                      CGFloat r, CGFloat g, CGFloat b) {
     CGFloat bw = STEPPER_BTN_W;
@@ -69,66 +67,39 @@ static inline void cg_right_triangle(CGContextRef ctx, CGFloat bx, CGFloat by,
     CGContextFillPath(ctx);
 }
 
-// Draw text using CoreText — x,y is baseline-left in flipped coordinates
-static void cgtext(CGContextRef ctx, CGFloat x, CGFloat y, const char *str,
-                   CTFontRef font, CGFloat r, CGFloat g, CGFloat b) {
-    if (!str || !font) return;
-
-    CFStringRef cfstr = CFStringCreateWithCString(nullptr, str, kCFStringEncodingUTF8);
-    if (!cfstr) return;
-
-    CGColorRef color = CGColorCreateGenericRGB(r, g, b, 1.0);
-    CFStringRef keys[] = { kCTFontAttributeName, kCTForegroundColorAttributeName };
-    CFTypeRef values[] = { font, color };
-    CFDictionaryRef attrs = CFDictionaryCreate(nullptr,
-        (const void **)keys, (const void **)values, 2,
-        &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
-
-    CFAttributedStringRef astr = CFAttributedStringCreate(nullptr, cfstr, attrs);
-    CTLineRef line = CTLineCreateWithAttributedString(astr);
-
-    CGContextSetTextMatrix(ctx, CGAffineTransformIdentity);
-    CGContextSetTextPosition(ctx, x, y);
-    CTLineDraw(line, ctx);
-
-    CFRelease(line);
-    CFRelease(astr);
-    CFRelease(attrs);
-    CGColorRelease(color);
-    CFRelease(cfstr);
+// Pixel font drawing — mirrors X11 draw_str
+static void cg_draw_str(CGContextRef ctx, CGFloat x, CGFloat y, const char *str,
+                        int scale, CGFloat r, CGFloat g, CGFloat b) {
+    CGContextSetRGBFillColor(ctx, r, g, b, 1.0);
+    CGFloat cx = x;
+    while (*str) {
+        unsigned char ch = (unsigned char)*str++;
+        if (ch < 32 || ch > 126) ch = '?';
+        const uint8_t *glyph = FONT6X8[ch - 32];
+        for (int row = 0; row < FONT6X8_H; ++row) {
+            uint8_t bits = glyph[row];
+            if (!bits) continue;
+            for (int col = 0; col < FONT6X8_W; ++col) {
+                if (bits & (0x20 >> col)) {
+                    CGContextFillRect(ctx, CGRectMake(
+                        cx + col * scale, y + row * scale, scale, scale));
+                }
+            }
+        }
+        cx += FONT6X8_ADV * scale;
+    }
 }
 
-static CGFloat ct_text_width(const char *str, CTFontRef font) {
-    if (!str || !font) return 0;
-    CFStringRef cfstr = CFStringCreateWithCString(nullptr, str, kCFStringEncodingUTF8);
-    if (!cfstr) return 0;
-    CFStringRef keys[] = { kCTFontAttributeName };
-    CFTypeRef values[] = { font };
-    CFDictionaryRef attrs = CFDictionaryCreate(nullptr,
-        (const void **)keys, (const void **)values, 1,
-        &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
-    CFAttributedStringRef astr = CFAttributedStringCreate(nullptr, cfstr, attrs);
-    CTLineRef line = CTLineCreateWithAttributedString(astr);
-    CGFloat w = (CGFloat)CTLineGetTypographicBounds(line, nullptr, nullptr, nullptr);
-    CFRelease(line);
-    CFRelease(astr);
-    CFRelease(attrs);
-    CFRelease(cfstr);
-    return w;
+static void cg_draw_str_c(CGContextRef ctx, CGFloat cx, CGFloat y, const char *str,
+                           int scale, CGFloat r, CGFloat g, CGFloat b) {
+    CGFloat w = (CGFloat)font6x8_width(str, scale);
+    cg_draw_str(ctx, cx - w / 2.0, y, str, scale, r, g, b);
 }
 
-// Draw text right-aligned so right edge is at x
-static void cgtext_r(CGContextRef ctx, CGFloat x, CGFloat y, const char *str,
-                     CTFontRef font, CGFloat r, CGFloat g, CGFloat b) {
-    CGFloat w = ct_text_width(str, font);
-    cgtext(ctx, x - w, y, str, font, r, g, b);
-}
-
-// Draw text centered horizontally around cx
-static void cgtext_c(CGContextRef ctx, CGFloat cx, CGFloat y, const char *str,
-                     CTFontRef font, CGFloat r, CGFloat g, CGFloat b) {
-    CGFloat w = ct_text_width(str, font);
-    cgtext(ctx, cx - w / 2.0, y, str, font, r, g, b);
+static void cg_draw_str_r(CGContextRef ctx, CGFloat x, CGFloat y, const char *str,
+                           int scale, CGFloat r, CGFloat g, CGFloat b) {
+    CGFloat w = (CGFloat)font6x8_width(str, scale);
+    cg_draw_str(ctx, x - w, y, str, scale, r, g, b);
 }
 
 // ---------------------------------------------------------------------------
@@ -138,8 +109,6 @@ static void cgtext_c(CGContextRef ctx, CGFloat cx, CGFloat y, const char *str,
 @interface SilvertuneView : NSView {
     SilvertunePlugin *_plugin;
     NSTimer          *_timer;
-    CTFontRef         _fontSm;   // ~10pt — labels, values
-    CTFontRef         _fontLg;   // ~18pt — note name
 }
 - (instancetype)initWithPlugin:(SilvertunePlugin *)plugin;
 @end
@@ -150,33 +119,6 @@ static void cgtext_c(CGContextRef ctx, CGFloat cx, CGFloat y, const char *str,
     self = [super initWithFrame:NSMakeRect(0, 0, GUI_W, GUI_H)];
     if (self) {
         _plugin = plugin;
-
-        // Load Inter-Black from embedded bytes
-        CGDataProviderRef dp = CGDataProviderCreateWithData(
-            nullptr, INTER_BLACK_FONT, INTER_BLACK_FONT_LEN, nullptr);
-        CGFontRef cgFont = dp ? CGFontCreateWithDataProvider(dp) : nullptr;
-        _fontSm = nullptr;
-        _fontLg = nullptr;
-        if (cgFont) {
-            CFErrorRef err = nullptr;
-            CTFontManagerRegisterGraphicsFont(cgFont, &err);
-            if (err) CFRelease(err);
-            CFStringRef name = CGFontCopyFullName(cgFont);
-            if (name) {
-                _fontSm = CTFontCreateWithName(name, 10.0, nullptr);
-                _fontLg = CTFontCreateWithName(name, 18.0, nullptr);
-                CFRelease(name);
-            }
-            CGFontRelease(cgFont);
-        }
-        if (dp) CGDataProviderRelease(dp);
-
-        // Fallback fonts if Inter didn't load
-        if (!_fontSm) _fontSm = CTFontCreateWithName(CFSTR("Menlo"), 10.0, nullptr);
-        if (!_fontSm) _fontSm = CTFontCreateWithName(CFSTR("Courier New"), 10.0, nullptr);
-        if (!_fontLg) _fontLg = CTFontCreateWithName(CFSTR("Menlo-Bold"), 18.0, nullptr);
-        if (!_fontLg) _fontLg = CTFontCreateWithName(CFSTR("Courier New Bold"), 18.0, nullptr);
-
         _timer = [NSTimer scheduledTimerWithTimeInterval:1.0/30.0
                                                   target:self
                                                 selector:@selector(timerFired:)
@@ -189,8 +131,6 @@ static void cgtext_c(CGContextRef ctx, CGFloat cx, CGFloat y, const char *str,
 - (void)dealloc {
     [_timer invalidate];
     _timer = nil;
-    if (_fontSm) { CFRelease(_fontSm); _fontSm = nullptr; }
-    if (_fontLg) { CFRelease(_fontLg); _fontLg = nullptr; }
     [super dealloc];
 }
 
@@ -214,23 +154,15 @@ static void cgtext_c(CGContextRef ctx, CGFloat cx, CGFloat y, const char *str,
 #define G(c) ((c).g / 255.0)
 #define B(c) ((c).b / 255.0)
 
-    CGFloat font_sm_ascent = _fontSm ? CTFontGetAscent(_fontSm) : 8.0;
-    CGFloat font_lg_ascent = _fontLg ? CTFontGetAscent(_fontLg) : 14.0;
-    CGFloat font_sm_height = _fontSm ?
-        (CTFontGetAscent(_fontSm) + CTFontGetDescent(_fontSm) + CTFontGetLeading(_fontSm)) : 12.0;
-    CGFloat font_lg_height = _fontLg ?
-        (CTFontGetAscent(_fontLg) + CTFontGetDescent(_fontLg)) : 22.0;
-
     // Background
     cgfill(ctx, 0, 0, GUI_W, GUI_H, R(COL_BG), G(COL_BG), B(COL_BG));
 
     // -----------------------------------------------------------------------
     // Header bar
     // -----------------------------------------------------------------------
-    cgtext(ctx, 8, 3 + font_lg_ascent, "SILVERTUNE",
-           _fontLg, R(COL_ACCENT), G(COL_ACCENT), B(COL_ACCENT));
-    cgtext_r(ctx, GUI_W - 8, 7 + font_sm_ascent, "VERTICAL RECTANGLE",
-             _fontSm, R(COL_LABEL), G(COL_LABEL), B(COL_LABEL));
+    cg_draw_str(ctx, 8, 3, "SILVERTUNE", 2, R(COL_ACCENT), G(COL_ACCENT), B(COL_ACCENT));
+    cg_draw_str_r(ctx, GUI_W - 8, 7, "VERTICAL RECTANGLE", 1,
+                  R(COL_LABEL), G(COL_LABEL), B(COL_LABEL));
     cgline(ctx, 0, HDR_H, GUI_W, HDR_H, R(COL_HDR_SEP), G(COL_HDR_SEP), B(COL_HDR_SEP));
 
     // -----------------------------------------------------------------------
@@ -251,7 +183,7 @@ static void cgtext_c(CGContextRef ctx, CGFloat cx, CGFloat y, const char *str,
         static const int WK[7] = { 0, 2, 4, 5, 7, 9, 11 };
         struct BkDef { int note, dx; };
         static const BkDef BK[5] = {
-            {1, 14}, {3, 34}, {6, 74}, {8, 94}, {10, 114}
+            {1, 17}, {3, 41}, {6, 89}, {8, 113}, {10, 137}
         };
         int hi = (corr >= 0) ? corr % 12 : -1;
 
@@ -349,17 +281,17 @@ static void cgtext_c(CGContextRef ctx, CGFloat cx, CGFloat y, const char *str,
         cgcircle(ctx, ARC_PCX, ARC_PCY, 2.0, R(COL_DIM), G(COL_DIM), B(COL_DIM));
     }
 
-    // Corrected note name below pivot (centered), large font
+    // Corrected note name below pivot, scale=3
     {
         const char *corr_str = (corr >= 0) ? NOTE_NAMES[corr % 12] : "--";
         bool in_tune = active && std::fabs(dc) < 5.0f;
         CGFloat nr = in_tune ? R(COL_ACCENT) : R(COL_WHITE);
         CGFloat ng = in_tune ? G(COL_ACCENT) : G(COL_WHITE);
         CGFloat nb = in_tune ? B(COL_ACCENT) : B(COL_WHITE);
-        cgtext_c(ctx, ARC_PCX, ARC_PCY + 14 + font_lg_ascent, corr_str, _fontLg, nr, ng, nb);
+        cg_draw_str_c(ctx, ARC_PCX, ARC_PCY + 14, corr_str, 3, nr, ng, nb);
     }
 
-    // Cents value below note name, small font
+    // Cents value below note name, scale=1
     {
         char cbuf[16];
         if (active) {
@@ -372,8 +304,7 @@ static void cgtext_c(CGContextRef ctx, CGFloat cx, CGFloat y, const char *str,
         CGFloat cr = in_tune ? R(COL_ACCENT) : R(COL_LABEL);
         CGFloat cg = in_tune ? G(COL_ACCENT) : G(COL_LABEL);
         CGFloat cb = in_tune ? B(COL_ACCENT) : B(COL_LABEL);
-        cgtext_c(ctx, ARC_PCX, ARC_PCY + 14 + font_lg_height + 4 + font_sm_ascent,
-                 cbuf, _fontSm, cr, cg, cb);
+        cg_draw_str_c(ctx, ARC_PCX, ARC_PCY + 14 + 3 * FONT6X8_H + 4, cbuf, 1, cr, cg, cb);
     }
 
     // -----------------------------------------------------------------------
@@ -386,8 +317,8 @@ static void cgtext_c(CGContextRef ctx, CGFloat cx, CGFloat y, const char *str,
     // -----------------------------------------------------------------------
     // KEY stepper
     // -----------------------------------------------------------------------
-    cgtext(ctx, KEY_LABEL_X, KEY_LABEL_Y + font_sm_ascent, "KEY",
-           _fontSm, R(COL_LABEL), G(COL_LABEL), B(COL_LABEL));
+    cg_draw_str(ctx, KEY_LABEL_X, KEY_LABEL_Y, "KEY", 1,
+                R(COL_LABEL), G(COL_LABEL), B(COL_LABEL));
     cg_left_triangle(ctx, KEY_LEFT_X, KEY_BTN_Y,
                      R(COL_LABEL), G(COL_LABEL), B(COL_LABEL));
     cg_right_triangle(ctx, KEY_RIGHT_X, KEY_BTN_Y,
@@ -395,15 +326,15 @@ static void cgtext_c(CGContextRef ctx, CGFloat cx, CGFloat y, const char *str,
     {
         int key = (int)std::lround(p->param_key.load());
         key = ((key % 12) + 12) % 12;
-        cgtext(ctx, KEY_TEXT_X, KEY_BTN_Y + font_sm_ascent, NOTE_NAMES[key],
-               _fontSm, R(COL_WHITE), G(COL_WHITE), B(COL_WHITE));
+        cg_draw_str(ctx, KEY_TEXT_X, KEY_BTN_Y, NOTE_NAMES[key], 1,
+                    R(COL_WHITE), G(COL_WHITE), B(COL_WHITE));
     }
 
     // -----------------------------------------------------------------------
     // SCALE stepper
     // -----------------------------------------------------------------------
-    cgtext(ctx, SCALE_LABEL_X, SCALE_LABEL_Y + font_sm_ascent, "SCALE",
-           _fontSm, R(COL_LABEL), G(COL_LABEL), B(COL_LABEL));
+    cg_draw_str(ctx, SCALE_LABEL_X, SCALE_LABEL_Y, "SCALE", 1,
+                R(COL_LABEL), G(COL_LABEL), B(COL_LABEL));
     cg_left_triangle(ctx, SCALE_LEFT_X, SCALE_BTN_Y,
                      R(COL_LABEL), G(COL_LABEL), B(COL_LABEL));
     cg_right_triangle(ctx, SCALE_RIGHT_X, SCALE_BTN_Y,
@@ -412,8 +343,8 @@ static void cgtext_c(CGContextRef ctx, CGFloat cx, CGFloat y, const char *str,
         int ps = (int)std::lround(p->param_scale.load());
         ps = ps < 0 ? 0 : (ps > 2 ? 2 : ps);
         int gs = PARAM_TO_GUI_SCALE[ps];
-        cgtext(ctx, SCALE_TEXT_X, SCALE_BTN_Y + font_sm_ascent, SCALE_NAMES_GUI[gs],
-               _fontSm, R(COL_WHITE), G(COL_WHITE), B(COL_WHITE));
+        cg_draw_str(ctx, SCALE_TEXT_X, SCALE_BTN_Y, SCALE_NAMES_GUI[gs], 1,
+                    R(COL_WHITE), G(COL_WHITE), B(COL_WHITE));
     }
 
     // Horizontal divider
@@ -427,14 +358,12 @@ static void cgtext_c(CGContextRef ctx, CGFloat cx, CGFloat y, const char *str,
         float wide = (float)p->param_wide.load();
         char pct[16];
         snprintf(pct, sizeof(pct), "%.0f%%", wide * 100.0f);
-        cgtext(ctx, WIDE_LABEL_X, WIDE_LABEL_Y + font_sm_ascent, "WIDE",
-               _fontSm, R(COL_LABEL), G(COL_LABEL), B(COL_LABEL));
-        // Right-align percentage
+        cg_draw_str(ctx, WIDE_LABEL_X, WIDE_LABEL_Y, "WIDE", 1,
+                    R(COL_LABEL), G(COL_LABEL), B(COL_LABEL));
         CGFloat pr = wide > 0.0f ? R(COL_WHITE) : R(COL_LABEL);
         CGFloat pg = wide > 0.0f ? G(COL_WHITE) : G(COL_LABEL);
         CGFloat pb = wide > 0.0f ? B(COL_WHITE) : B(COL_LABEL);
-        cgtext_r(ctx, WIDE_PCT_X, WIDE_PCT_Y + font_sm_ascent, pct, _fontSm, pr, pg, pb);
-        // Track
+        cg_draw_str_r(ctx, WIDE_PCT_X, WIDE_PCT_Y, pct, 1, pr, pg, pb);
         cgfill(ctx, WIDE_TRACK_X, WIDE_TRACK_Y, WIDE_TRACK_W, WIDE_TRACK_H,
                R(COL_TRACK), G(COL_TRACK), B(COL_TRACK));
         int fw = slider_px(wide, WIDE_TRACK_X, WIDE_TRACK_W) - WIDE_TRACK_X;
@@ -454,12 +383,12 @@ static void cgtext_c(CGContextRef ctx, CGFloat cx, CGFloat y, const char *str,
         float tune = (float)p->param_speed.load();
         char pct[16];
         snprintf(pct, sizeof(pct), "%.0f%%", tune * 100.0f);
-        cgtext(ctx, TUNE_LABEL_X, TUNE_LABEL_Y + font_sm_ascent, "TUNE",
-               _fontSm, R(COL_LABEL), G(COL_LABEL), B(COL_LABEL));
+        cg_draw_str(ctx, TUNE_LABEL_X, TUNE_LABEL_Y, "TUNE", 1,
+                    R(COL_LABEL), G(COL_LABEL), B(COL_LABEL));
         CGFloat pr = tune > 0.0f ? R(COL_WHITE) : R(COL_LABEL);
         CGFloat pg = tune > 0.0f ? G(COL_WHITE) : G(COL_LABEL);
         CGFloat pb = tune > 0.0f ? B(COL_WHITE) : B(COL_LABEL);
-        cgtext_r(ctx, TUNE_PCT_X, TUNE_PCT_Y + font_sm_ascent, pct, _fontSm, pr, pg, pb);
+        cg_draw_str_r(ctx, TUNE_PCT_X, TUNE_PCT_Y, pct, 1, pr, pg, pb);
         cgfill(ctx, TUNE_TRACK_X, TUNE_TRACK_Y, TUNE_TRACK_W, TUNE_TRACK_H,
                R(COL_TRACK), G(COL_TRACK), B(COL_TRACK));
         int fw = slider_px(tune, TUNE_TRACK_X, TUNE_TRACK_W) - TUNE_TRACK_X;
