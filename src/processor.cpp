@@ -90,8 +90,8 @@ clap_process_status silvertune_process(SilvertunePlugin *p, const clap_process_t
 
     process_events(p, process->in_events);
 
-    int root_key = static_cast<int>(p->param_key.load());
-    auto scale = static_cast<ScaleType>(static_cast<int>(p->param_scale.load()));
+    int root_key = (int)std::lround(p->param_key.load());
+    auto scale = static_cast<ScaleType>((int)std::lround(p->param_scale.load()));
     float wide = static_cast<float>(p->param_wide.load());
     float speed = static_cast<float>(p->param_speed.load());
 

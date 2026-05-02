@@ -1,4 +1,5 @@
 #include "silvertune.h"
+#include <cmath>
 #include <cstring>
 #include <cstdio>
 
@@ -80,13 +81,13 @@ static bool params_value_to_text(const clap_plugin_t *, clap_id param_id, double
                                   char *buf, uint32_t buf_size) {
     switch (param_id) {
     case PARAM_KEY: {
-        int idx = static_cast<int>(value);
+        int idx = (int)std::lround(value);
         if (idx < 0 || idx > 11) return false;
         snprintf(buf, buf_size, "%s", key_names[idx]);
         return true;
     }
     case PARAM_SCALE: {
-        int idx = static_cast<int>(value);
+        int idx = (int)std::lround(value);
         if (idx < 0 || idx >= SCALE_COUNT) return false;
         snprintf(buf, buf_size, "%s", scale_names[idx]);
         return true;
