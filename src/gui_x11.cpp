@@ -1,11 +1,11 @@
 #if !defined(_WIN32) && !defined(__APPLE__)
 
 #include "gui.h"
-#include "font_stb.h"
 #include "silvertune.h"
 
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
+#include <X11/Xft/Xft.h>
 #include <pthread.h>
 #include <sys/select.h>
 #include <sys/time.h>
@@ -25,9 +25,16 @@ struct X11Data {
     Pixmap          buf       = 0;
     bool            running   = false;
     pthread_t       thread;
-    unsigned long   colors[11] = {};
+    unsigned long   colors[10] = {};
     SilvertunePlugin *plugin  = nullptr;
     int             wake_fd[2] = {-1, -1};
+    int             screen    = 0;
+    // Xft
+    XftFont        *xft_sm    = nullptr;  // 10px
+    XftFont        *xft_md    = nullptr;  // 12px
+    XftFont        *xft_lg    = nullptr;  // 22px bold
+    XftDraw        *xft_draw  = nullptr;
+    XftColor        xft_white = {};
 };
 
 enum ColorIdx {
@@ -98,47 +105,27 @@ static void draw_right_triangle(X11Data *d, Drawable drw, int bx, int by, int ci
 }
 
 // ---------------------------------------------------------------------------
-// stb_truetype text rendering via XDrawPoints batch
+// Xft text helpers — y is top of text cell, not baseline
 // ---------------------------------------------------------------------------
 
-struct X11DrawCtx {
-    X11Data  *d;
-    Drawable  drw;
-    // Pixel batch
-    XPoint   pts[4096];
-    int      npts = 0;
-    void flush() {
-        if (npts > 0) {
-            XDrawPoints(d->dpy, drw, d->gc, pts, npts, CoordModeOrigin);
-            npts = 0;
-        }
-    }
-};
-
-static void x11_pixel_fn(int x, int y, uint8_t alpha, void *ud) {
-    if (alpha < 80) return;
-    auto *ctx = (X11DrawCtx *)ud;
-    ctx->pts[ctx->npts++] = { (short)x, (short)y };
-    if (ctx->npts == 4096) ctx->flush();
+static int xft_width(X11Data *d, XftFont *f, const char *str) {
+    XGlyphInfo ext;
+    XftTextExtents8(d->dpy, f, (const FcChar8 *)str, (int)strlen(str), &ext);
+    return ext.xOff;
 }
 
-static void draw_str(X11Data *d, Drawable drw, int x, int y,
-                     const char *str, StbFont *font, int cidx) {
-    set_color(d, cidx);
-    X11DrawCtx ctx;
-    ctx.d = d; ctx.drw = drw; ctx.npts = 0;
-    stb_font_draw(font, x, y, str, x11_pixel_fn, &ctx);
-    ctx.flush();
+static void draw_str(X11Data *d, int x, int y, const char *str, XftFont *f) {
+    XftDrawString8(d->xft_draw, &d->xft_white, f,
+                   x, y + f->ascent,
+                   (const FcChar8 *)str, (int)strlen(str));
 }
 
-static void draw_str_c(X11Data *d, Drawable drw, int cx, int y,
-                       const char *str, StbFont *font, int cidx) {
-    draw_str(d, drw, cx - stb_font_width(font, str) / 2, y, str, font, cidx);
+static void draw_str_c(X11Data *d, int cx, int y, const char *str, XftFont *f) {
+    draw_str(d, cx - xft_width(d, f, str) / 2, y, str, f);
 }
 
-static void draw_str_r(X11Data *d, Drawable drw, int x, int y,
-                       const char *str, StbFont *font, int cidx) {
-    draw_str(d, drw, x - stb_font_width(font, str), y, str, font, cidx);
+static void draw_str_r(X11Data *d, int x, int y, const char *str, XftFont *f) {
+    draw_str(d, x - xft_width(d, f, str), y, str, f);
 }
 
 // ---------------------------------------------------------------------------
@@ -154,8 +141,8 @@ static void do_draw(X11Data *d) {
     // -----------------------------------------------------------------------
     // Header bar
     // -----------------------------------------------------------------------
-    draw_str(d, buf, 8, 4, "SILVERTUNE", font_md(), C_ACCENT);
-    draw_str_r(d, buf, GUI_W - 8, 6, "VERTICAL RECTANGLE", font_sm(), C_LABEL);
+    draw_str(d, 8, 4, "SILVERTUNE", d->xft_md);
+    draw_str_r(d, GUI_W - 8, 6, "VERTICAL RECTANGLE", d->xft_sm);
     draw_line(d, buf, 0, HDR_H, GUI_W, HDR_H, C_HDR_SEP);
 
     // -----------------------------------------------------------------------
@@ -252,9 +239,7 @@ static void do_draw(X11Data *d) {
     // Note name (large, centered under pivot)
     {
         const char *corr_str = (corr >= 0) ? NOTE_NAMES[corr % 12] : "--";
-        bool in_tune = active && std::fabs(dc) < 5.0f;
-        draw_str_c(d, buf, ARC_PCX, ARC_PCY + 16, corr_str, font_lg(),
-                   in_tune ? C_ACCENT : C_WHITE);
+        draw_str_c(d, ARC_PCX, ARC_PCY + 16, corr_str, d->xft_lg);
     }
 
     // Cents value
@@ -266,10 +251,8 @@ static void do_draw(X11Data *d) {
         } else {
             snprintf(cbuf, sizeof(cbuf), "--");
         }
-        bool in_tune = active && std::fabs(dc) < 5.0f;
-        int cy = ARC_PCY + 16 + stb_font_height(font_lg()) + 4;
-        draw_str_c(d, buf, ARC_PCX, cy, cbuf, font_sm(),
-                   in_tune ? C_ACCENT : C_WHITE);
+        int cy = ARC_PCY + 16 + d->xft_lg->height + 4;
+        draw_str_c(d, ARC_PCX, cy, cbuf, d->xft_sm);
     }
 
     // -----------------------------------------------------------------------
@@ -281,26 +264,26 @@ static void do_draw(X11Data *d) {
     // -----------------------------------------------------------------------
     // KEY stepper
     // -----------------------------------------------------------------------
-    draw_str(d, buf, KEY_LABEL_X, KEY_LABEL_Y, "KEY", font_md(), C_WHITE);
+    draw_str(d, KEY_LABEL_X, KEY_LABEL_Y, "KEY", d->xft_sm);
     draw_left_triangle(d, buf, KEY_LEFT_X, KEY_BTN_Y, C_WHITE);
     draw_right_triangle(d, buf, KEY_RIGHT_X, KEY_BTN_Y, C_WHITE);
     {
         int key = (int)std::lround(p->param_key.load());
         key = ((key % 12) + 12) % 12;
-        draw_str(d, buf, KEY_TEXT_X, KEY_BTN_Y, NOTE_NAMES[key], font_md(), C_ACCENT);
+        draw_str(d, KEY_TEXT_X, KEY_BTN_Y, NOTE_NAMES[key], d->xft_md);
     }
 
     // -----------------------------------------------------------------------
     // SCALE stepper
     // -----------------------------------------------------------------------
-    draw_str(d, buf, SCALE_LABEL_X, SCALE_LABEL_Y, "SCALE", font_md(), C_WHITE);
+    draw_str(d, SCALE_LABEL_X, SCALE_LABEL_Y, "SCALE", d->xft_sm);
     draw_left_triangle(d, buf, SCALE_LEFT_X, SCALE_BTN_Y, C_WHITE);
     draw_right_triangle(d, buf, SCALE_RIGHT_X, SCALE_BTN_Y, C_WHITE);
     {
         int ps = (int)std::lround(p->param_scale.load());
         ps = ps < 0 ? 0 : (ps > 2 ? 2 : ps);
         int gs = PARAM_TO_GUI_SCALE[ps];
-        draw_str(d, buf, SCALE_TEXT_X, SCALE_BTN_Y, SCALE_NAMES_GUI[gs], font_md(), C_ACCENT);
+        draw_str(d, SCALE_TEXT_X, SCALE_BTN_Y, SCALE_NAMES_GUI[gs], d->xft_md);
     }
 
     draw_line(d, buf, CTRL_X, KEY_BTN_Y + 22, GUI_W - 8, KEY_BTN_Y + 22, C_HDR_SEP);
@@ -312,8 +295,8 @@ static void do_draw(X11Data *d) {
         float wide = (float)p->param_wide.load();
         char pct[16];
         snprintf(pct, sizeof(pct), "%.0f%%", wide * 100.0f);
-        draw_str(d, buf, WIDE_LABEL_X, WIDE_LABEL_Y, "WIDE", font_md(), C_WHITE);
-        draw_str_r(d, buf, WIDE_PCT_X, WIDE_PCT_Y, pct, font_md(), C_WHITE);
+        draw_str(d, WIDE_LABEL_X, WIDE_LABEL_Y, "WIDE", d->xft_sm);
+        draw_str_r(d, WIDE_PCT_X, WIDE_PCT_Y, pct, d->xft_sm);
         fill_rect(d, buf, WIDE_TRACK_X, WIDE_TRACK_Y, WIDE_TRACK_W, WIDE_TRACK_H, C_TRACK);
         int fw = slider_px(wide, WIDE_TRACK_X, WIDE_TRACK_W) - WIDE_TRACK_X;
         if (fw > 0) fill_rect(d, buf, WIDE_TRACK_X, WIDE_TRACK_Y, fw, WIDE_TRACK_H, C_FILL);
@@ -328,8 +311,8 @@ static void do_draw(X11Data *d) {
         float tune = (float)p->param_speed.load();
         char pct[16];
         snprintf(pct, sizeof(pct), "%.0f%%", tune * 100.0f);
-        draw_str(d, buf, TUNE_LABEL_X, TUNE_LABEL_Y, "TUNE", font_md(), C_WHITE);
-        draw_str_r(d, buf, TUNE_PCT_X, TUNE_PCT_Y, pct, font_md(), C_WHITE);
+        draw_str(d, TUNE_LABEL_X, TUNE_LABEL_Y, "TUNE", d->xft_sm);
+        draw_str_r(d, TUNE_PCT_X, TUNE_PCT_Y, pct, d->xft_sm);
         fill_rect(d, buf, TUNE_TRACK_X, TUNE_TRACK_Y, TUNE_TRACK_W, TUNE_TRACK_H, C_TRACK);
         int fw = slider_px(tune, TUNE_TRACK_X, TUNE_TRACK_W) - TUNE_TRACK_X;
         if (fw > 0) fill_rect(d, buf, TUNE_TRACK_X, TUNE_TRACK_Y, fw, TUNE_TRACK_H, C_FILL);
@@ -488,7 +471,6 @@ static void *x11_thread(void *arg) {
 // ---------------------------------------------------------------------------
 
 void gui_create(SilvertunePlugin *p) {
-    stb_fonts_init();
     p->gui.created = true;
 }
 
@@ -502,35 +484,61 @@ bool gui_set_parent(SilvertunePlugin *p, void *native_parent) {
     d->dpy = XOpenDisplay(nullptr);
     if (!d->dpy) { delete d; p->gui.handle = nullptr; return false; }
 
-    int screen = DefaultScreen(d->dpy);
+    d->screen = DefaultScreen(d->dpy);
     Window parent_win = native_parent
         ? static_cast<Window>(reinterpret_cast<unsigned long>(native_parent))
         : DefaultRootWindow(d->dpy);
 
     XSetWindowAttributes wa;
-    wa.background_pixel = BlackPixel(d->dpy, screen);
+    wa.background_pixel = BlackPixel(d->dpy, d->screen);
     wa.event_mask = ExposureMask | ButtonPressMask | ButtonReleaseMask |
                     PointerMotionMask | StructureNotifyMask;
 
     d->win = XCreateWindow(d->dpy, parent_win, 0, 0, GUI_W, GUI_H, 0,
-                            DefaultDepth(d->dpy, screen), InputOutput,
-                            DefaultVisual(d->dpy, screen),
+                            DefaultDepth(d->dpy, d->screen), InputOutput,
+                            DefaultVisual(d->dpy, d->screen),
                             CWBackPixel | CWEventMask, &wa);
 
     d->gc  = XCreateGC(d->dpy, d->win, 0, nullptr);
     d->buf = XCreatePixmap(d->dpy, d->win, GUI_W, GUI_H,
-                            DefaultDepth(d->dpy, screen));
+                            DefaultDepth(d->dpy, d->screen));
 
-    d->colors[C_BG]         = alloc_color(d->dpy, screen, COL_BG.r,         COL_BG.g,         COL_BG.b);
-    d->colors[C_DISPLAY_BG] = alloc_color(d->dpy, screen, COL_DISPLAY_BG.r, COL_DISPLAY_BG.g, COL_DISPLAY_BG.b);
-    d->colors[C_ACCENT]     = alloc_color(d->dpy, screen, COL_ACCENT.r,     COL_ACCENT.g,     COL_ACCENT.b);
-    d->colors[C_DIM]        = alloc_color(d->dpy, screen, COL_DIM.r,        COL_DIM.g,        COL_DIM.b);
-    d->colors[C_LABEL]      = alloc_color(d->dpy, screen, COL_LABEL.r,      COL_LABEL.g,      COL_LABEL.b);
-    d->colors[C_TRACK]      = alloc_color(d->dpy, screen, COL_TRACK.r,      COL_TRACK.g,      COL_TRACK.b);
-    d->colors[C_FILL]       = alloc_color(d->dpy, screen, COL_FILL.r,       COL_FILL.g,       COL_FILL.b);
-    d->colors[C_THUMB]      = alloc_color(d->dpy, screen, COL_THUMB.r,      COL_THUMB.g,      COL_THUMB.b);
-    d->colors[C_WHITE]      = alloc_color(d->dpy, screen, COL_WHITE.r,      COL_WHITE.g,      COL_WHITE.b);
-    d->colors[C_HDR_SEP]    = alloc_color(d->dpy, screen, COL_HDR_SEP.r,    COL_HDR_SEP.g,    COL_HDR_SEP.b);
+    d->colors[C_BG]         = alloc_color(d->dpy, d->screen, COL_BG.r,         COL_BG.g,         COL_BG.b);
+    d->colors[C_DISPLAY_BG] = alloc_color(d->dpy, d->screen, COL_DISPLAY_BG.r, COL_DISPLAY_BG.g, COL_DISPLAY_BG.b);
+    d->colors[C_ACCENT]     = alloc_color(d->dpy, d->screen, COL_ACCENT.r,     COL_ACCENT.g,     COL_ACCENT.b);
+    d->colors[C_DIM]        = alloc_color(d->dpy, d->screen, COL_DIM.r,        COL_DIM.g,        COL_DIM.b);
+    d->colors[C_LABEL]      = alloc_color(d->dpy, d->screen, COL_LABEL.r,      COL_LABEL.g,      COL_LABEL.b);
+    d->colors[C_TRACK]      = alloc_color(d->dpy, d->screen, COL_TRACK.r,      COL_TRACK.g,      COL_TRACK.b);
+    d->colors[C_FILL]       = alloc_color(d->dpy, d->screen, COL_FILL.r,       COL_FILL.g,       COL_FILL.b);
+    d->colors[C_THUMB]      = alloc_color(d->dpy, d->screen, COL_THUMB.r,      COL_THUMB.g,      COL_THUMB.b);
+    d->colors[C_WHITE]      = alloc_color(d->dpy, d->screen, COL_WHITE.r,      COL_WHITE.g,      COL_WHITE.b);
+    d->colors[C_HDR_SEP]    = alloc_color(d->dpy, d->screen, COL_HDR_SEP.r,    COL_HDR_SEP.g,    COL_HDR_SEP.b);
+
+    // Open Xft fonts
+    d->xft_sm = XftFontOpen(d->dpy, d->screen,
+        XFT_FAMILY, XftTypeString, "sans",
+        XFT_PIXEL_SIZE, XftTypeDouble, 10.0,
+        NULL);
+    d->xft_md = XftFontOpen(d->dpy, d->screen,
+        XFT_FAMILY, XftTypeString, "sans",
+        XFT_PIXEL_SIZE, XftTypeDouble, 12.0,
+        NULL);
+    d->xft_lg = XftFontOpen(d->dpy, d->screen,
+        XFT_FAMILY, XftTypeString, "sans",
+        XFT_WEIGHT, XftTypeInteger, 200,  // FC_WEIGHT_BOLD
+        XFT_PIXEL_SIZE, XftTypeDouble, 22.0,
+        NULL);
+
+    // XftDraw bound to the offscreen pixmap
+    d->xft_draw = XftDrawCreate(d->dpy, d->buf,
+                                DefaultVisual(d->dpy, d->screen),
+                                DefaultColormap(d->dpy, d->screen));
+
+    d->xft_white.pixel        = d->colors[C_WHITE];
+    d->xft_white.color.red    = 0xFFFF;
+    d->xft_white.color.green  = 0xFFFF;
+    d->xft_white.color.blue   = 0xFFFF;
+    d->xft_white.color.alpha  = 0xFFFF;
 
     XMapWindow(d->dpy, d->win);
     XFlush(d->dpy);
@@ -568,6 +576,11 @@ void gui_destroy(SilvertunePlugin *p) {
 
     if (d->wake_fd[0] >= 0) close(d->wake_fd[0]);
     if (d->wake_fd[1] >= 0) close(d->wake_fd[1]);
+
+    if (d->xft_draw) XftDrawDestroy(d->xft_draw);
+    if (d->xft_sm)   XftFontClose(d->dpy, d->xft_sm);
+    if (d->xft_md)   XftFontClose(d->dpy, d->xft_md);
+    if (d->xft_lg)   XftFontClose(d->dpy, d->xft_lg);
 
     XFreePixmap(d->dpy, d->buf);
     XFreeGC(d->dpy, d->gc);

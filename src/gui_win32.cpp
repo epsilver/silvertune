@@ -5,7 +5,6 @@
 #define _USE_MATH_DEFINES
 #include <windows.h>
 #include "gui.h"
-#include "font_stb.h"
 #include "silvertune.h"
 #include <cmath>
 #include <cstdio>
@@ -29,40 +28,36 @@ static bool register_wnd_class() {
 
     wc.cbSize        = sizeof(wc);
     wc.style         = CS_HREDRAW | CS_VREDRAW;
-    wc.lpfnWndProc   = DefWindowProcA; // replaced per-window via SetWindowLongPtr
+    wc.lpfnWndProc   = DefWindowProcA;
     wc.hInstance     = GetModuleHandleA(nullptr);
     wc.hCursor       = LoadCursorA(nullptr, IDC_ARROW);
     wc.lpszClassName = WNDCLASS_NAME;
-    wc.cbWndExtra    = sizeof(void *); // store SilvertunePlugin*
+    wc.cbWndExtra    = sizeof(void *);
 
     if (!RegisterClassExA(&wc)) return false;
     registered = true;
     return true;
 }
 
-// stb_truetype text via SetPixelV on the mem_dc
-struct Win32DrawCtx { HDC dc; COLORREF col; };
+// ---------------------------------------------------------------------------
+// GDI font management
+// ---------------------------------------------------------------------------
 
-static void win32_pixel_fn(int x, int y, uint8_t alpha, void *ud) {
-    if (alpha < 80) return;
-    auto *c = (Win32DrawCtx *)ud;
-    SetPixelV(c->dc, x, y, c->col);
-}
+static HFONT s_font_sm = nullptr;  // 10px — labels, small text
+static HFONT s_font_md = nullptr;  // 12px — main labels, values
+static HFONT s_font_lg = nullptr;  // 22px bold — note name
 
-static void draw_str_stb(HDC dc, int x, int y, const char *str,
-                         StbFont *font, COLORREF col) {
-    Win32DrawCtx ctx = {dc, col};
-    stb_font_draw(font, x, y, str, win32_pixel_fn, &ctx);
-}
-
-static void draw_str_c_stb(HDC dc, int cx, int y, const char *str,
-                            StbFont *font, COLORREF col) {
-    draw_str_stb(dc, cx - stb_font_width(font, str) / 2, y, str, font, col);
-}
-
-static void draw_str_r_stb(HDC dc, int x, int y, const char *str,
-                            StbFont *font, COLORREF col) {
-    draw_str_stb(dc, x - stb_font_width(font, str), y, str, font, col);
+static void ensure_fonts() {
+    if (s_font_sm) return;
+    s_font_sm = CreateFontA(-10, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+        ANTIALIASED_QUALITY, DEFAULT_PITCH | FF_DONTCARE, "Segoe UI");
+    s_font_md = CreateFontA(-12, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+        ANTIALIASED_QUALITY, DEFAULT_PITCH | FF_DONTCARE, "Segoe UI");
+    s_font_lg = CreateFontA(-22, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+        ANTIALIASED_QUALITY, DEFAULT_PITCH | FF_DONTCARE, "Segoe UI");
 }
 
 // ---------------------------------------------------------------------------
@@ -71,6 +66,34 @@ static void draw_str_r_stb(HDC dc, int x, int y, const char *str,
 
 static COLORREF gc(const GuiColor &c) {
     return RGB(c.r, c.g, c.b);
+}
+
+// ---------------------------------------------------------------------------
+// GDI text helpers — all text white, y is top of character cell
+// ---------------------------------------------------------------------------
+
+static void draw_str(HDC dc, int x, int y, const char *str, HFONT font) {
+    HFONT old = (HFONT)SelectObject(dc, font);
+    SetTextColor(dc, RGB(255, 255, 255));
+    SetBkMode(dc, TRANSPARENT);
+    TextOutA(dc, x, y, str, (int)strlen(str));
+    SelectObject(dc, old);
+}
+
+static void draw_str_c(HDC dc, int cx, int y, const char *str, HFONT font) {
+    HFONT old = (HFONT)SelectObject(dc, font);
+    SIZE sz = {};
+    GetTextExtentPoint32A(dc, str, (int)strlen(str), &sz);
+    SelectObject(dc, old);
+    draw_str(dc, cx - sz.cx / 2, y, str, font);
+}
+
+static void draw_str_r(HDC dc, int x, int y, const char *str, HFONT font) {
+    HFONT old = (HFONT)SelectObject(dc, font);
+    SIZE sz = {};
+    GetTextExtentPoint32A(dc, str, (int)strlen(str), &sz);
+    SelectObject(dc, old);
+    draw_str(dc, x - sz.cx, y, str, font);
 }
 
 // ---------------------------------------------------------------------------
@@ -180,8 +203,8 @@ static void do_paint(HWND hwnd, HDC hdc) {
     // -----------------------------------------------------------------------
     // Header bar
     // -----------------------------------------------------------------------
-    draw_str_stb(mem_dc, 8, 4, "SILVERTUNE", font_md(), col_accent);
-    draw_str_r_stb(mem_dc, GUI_W - 8, 6, "VERTICAL RECTANGLE", font_sm(), col_label);
+    draw_str(mem_dc, 8, 4, "SILVERTUNE", s_font_md);
+    draw_str_r(mem_dc, GUI_W - 8, 6, "VERTICAL RECTANGLE", s_font_sm);
     draw_line_dc(mem_dc, 0, HDR_H, GUI_W, HDR_H, col_hdr_sep);
 
     // -----------------------------------------------------------------------
@@ -292,15 +315,13 @@ static void do_paint(HWND hwnd, HDC hdc) {
         fill_circle_dc(mem_dc, ARC_PCX, ARC_PCY, 2, col_dim);
     }
 
-    // Corrected note name below pivot (centered), large font
+    // Corrected note name below pivot, large font
     {
         const char *corr_str = (corr >= 0) ? NOTE_NAMES[corr % 12] : "--";
-        bool in_tune = active && std::fabs(dc) < 5.0f;
-        COLORREF nc = in_tune ? col_accent : col_white;
-        draw_str_c_stb(mem_dc, ARC_PCX, ARC_PCY + 14, corr_str, font_lg(), nc);
+        draw_str_c(mem_dc, ARC_PCX, ARC_PCY + 14, corr_str, s_font_lg);
     }
 
-    // Cents value below note name, small font
+    // Cents value below note name — measure lg font height for offset
     {
         char cbuf[16];
         if (active) {
@@ -309,9 +330,12 @@ static void do_paint(HWND hwnd, HDC hdc) {
         } else {
             snprintf(cbuf, sizeof(cbuf), "--");
         }
-        bool in_tune = active && std::fabs(dc) < 5.0f;
-        COLORREF cc = in_tune ? col_accent : col_label;
-        draw_str_c_stb(mem_dc, ARC_PCX, ARC_PCY + 36, cbuf, font_sm(), cc);
+        TEXTMETRIC tm = {};
+        HFONT old = (HFONT)SelectObject(mem_dc, s_font_lg);
+        GetTextMetrics(mem_dc, &tm);
+        SelectObject(mem_dc, old);
+        int cy = ARC_PCY + 14 + tm.tmHeight + 4;
+        draw_str_c(mem_dc, ARC_PCX, cy, cbuf, s_font_sm);
     }
 
     // -----------------------------------------------------------------------
@@ -323,26 +347,26 @@ static void do_paint(HWND hwnd, HDC hdc) {
     // -----------------------------------------------------------------------
     // KEY stepper
     // -----------------------------------------------------------------------
-    draw_str_stb(mem_dc, KEY_LABEL_X, KEY_LABEL_Y, "KEY", font_sm(), col_label);
-    draw_left_triangle_dc(mem_dc, KEY_LEFT_X, KEY_BTN_Y, col_label);
-    draw_right_triangle_dc(mem_dc, KEY_RIGHT_X, KEY_BTN_Y, col_label);
+    draw_str(mem_dc, KEY_LABEL_X, KEY_LABEL_Y, "KEY", s_font_sm);
+    draw_left_triangle_dc(mem_dc, KEY_LEFT_X, KEY_BTN_Y, col_white);
+    draw_right_triangle_dc(mem_dc, KEY_RIGHT_X, KEY_BTN_Y, col_white);
     {
         int key = (int)std::lround(p->param_key.load());
         key = ((key % 12) + 12) % 12;
-        draw_str_stb(mem_dc, KEY_TEXT_X, KEY_BTN_Y, NOTE_NAMES[key], font_sm(), col_white);
+        draw_str(mem_dc, KEY_TEXT_X, KEY_BTN_Y, NOTE_NAMES[key], s_font_md);
     }
 
     // -----------------------------------------------------------------------
     // SCALE stepper
     // -----------------------------------------------------------------------
-    draw_str_stb(mem_dc, SCALE_LABEL_X, SCALE_LABEL_Y, "SCALE", font_sm(), col_label);
-    draw_left_triangle_dc(mem_dc, SCALE_LEFT_X, SCALE_BTN_Y, col_label);
-    draw_right_triangle_dc(mem_dc, SCALE_RIGHT_X, SCALE_BTN_Y, col_label);
+    draw_str(mem_dc, SCALE_LABEL_X, SCALE_LABEL_Y, "SCALE", s_font_sm);
+    draw_left_triangle_dc(mem_dc, SCALE_LEFT_X, SCALE_BTN_Y, col_white);
+    draw_right_triangle_dc(mem_dc, SCALE_RIGHT_X, SCALE_BTN_Y, col_white);
     {
         int ps = (int)std::lround(p->param_scale.load());
         ps = ps < 0 ? 0 : (ps > 2 ? 2 : ps);
         int gs = PARAM_TO_GUI_SCALE[ps];
-        draw_str_stb(mem_dc, SCALE_TEXT_X, SCALE_BTN_Y, SCALE_NAMES_GUI[gs], font_sm(), col_white);
+        draw_str(mem_dc, SCALE_TEXT_X, SCALE_BTN_Y, SCALE_NAMES_GUI[gs], s_font_md);
     }
 
     // Horizontal divider
@@ -355,9 +379,8 @@ static void do_paint(HWND hwnd, HDC hdc) {
         float wide = (float)p->param_wide.load();
         char pct[16];
         snprintf(pct, sizeof(pct), "%.0f%%", wide * 100.0f);
-        draw_str_stb(mem_dc, WIDE_LABEL_X, WIDE_LABEL_Y, "WIDE", font_sm(), col_label);
-        COLORREF pct_col = wide > 0.0f ? col_white : col_label;
-        draw_str_r_stb(mem_dc, WIDE_PCT_X, WIDE_PCT_Y, pct, font_sm(), pct_col);
+        draw_str(mem_dc, WIDE_LABEL_X, WIDE_LABEL_Y, "WIDE", s_font_sm);
+        draw_str_r(mem_dc, WIDE_PCT_X, WIDE_PCT_Y, pct, s_font_sm);
         fill_rect_dc(mem_dc, WIDE_TRACK_X, WIDE_TRACK_Y, WIDE_TRACK_W, WIDE_TRACK_H, col_track);
         int fw = slider_px(wide, WIDE_TRACK_X, WIDE_TRACK_W) - WIDE_TRACK_X;
         if (fw > 0) fill_rect_dc(mem_dc, WIDE_TRACK_X, WIDE_TRACK_Y, fw, WIDE_TRACK_H, col_fill);
@@ -373,9 +396,8 @@ static void do_paint(HWND hwnd, HDC hdc) {
         float tune = (float)p->param_speed.load();
         char pct[16];
         snprintf(pct, sizeof(pct), "%.0f%%", tune * 100.0f);
-        draw_str_stb(mem_dc, TUNE_LABEL_X, TUNE_LABEL_Y, "TUNE", font_sm(), col_label);
-        COLORREF pct_col = tune > 0.0f ? col_white : col_label;
-        draw_str_r_stb(mem_dc, TUNE_PCT_X, TUNE_PCT_Y, pct, font_sm(), pct_col);
+        draw_str(mem_dc, TUNE_LABEL_X, TUNE_LABEL_Y, "TUNE", s_font_sm);
+        draw_str_r(mem_dc, TUNE_PCT_X, TUNE_PCT_Y, pct, s_font_sm);
         fill_rect_dc(mem_dc, TUNE_TRACK_X, TUNE_TRACK_Y, TUNE_TRACK_W, TUNE_TRACK_H, col_track);
         int fw = slider_px(tune, TUNE_TRACK_X, TUNE_TRACK_W) - TUNE_TRACK_X;
         if (fw > 0) fill_rect_dc(mem_dc, TUNE_TRACK_X, TUNE_TRACK_Y, fw, TUNE_TRACK_H, col_fill);
@@ -531,7 +553,7 @@ static LRESULT CALLBACK silvertune_wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPAR
 
 void gui_create(SilvertunePlugin *p) {
     register_wnd_class();
-    stb_fonts_init();
+    ensure_fonts();
     p->gui.created = true;
 }
 
@@ -550,7 +572,7 @@ bool gui_set_parent(SilvertunePlugin *p, void *native_parent) {
         wc.hCursor       = LoadCursorA(nullptr, IDC_ARROW);
         wc.lpszClassName = WNDCLASS_NAME;
         wc.cbWndExtra    = sizeof(void *);
-        RegisterClassExA(&wc); // may fail if already registered (that's OK)
+        RegisterClassExA(&wc);
         class_with_proc = true;
     }
 

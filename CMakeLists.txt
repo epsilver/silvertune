@@ -25,8 +25,6 @@ add_library(silvertune-impl STATIC
     src/parameters.cpp
     src/scale.cpp
     src/yin.cpp
-    src/font_stb.cpp
-    src/font_stb_embed.cpp
 )
 
 if(WIN32)
@@ -39,9 +37,11 @@ elseif(APPLE)
     )
 else()
     target_sources(silvertune-impl PRIVATE src/gui_x11.cpp)
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(XFT REQUIRED xft)
     find_package(X11 REQUIRED)
-    target_link_libraries(silvertune-impl PUBLIC ${X11_LIBRARIES})
-    target_include_directories(silvertune-impl PUBLIC ${X11_INCLUDE_DIR})
+    target_link_libraries(silvertune-impl PUBLIC ${X11_LIBRARIES} ${XFT_LIBRARIES})
+    target_include_directories(silvertune-impl PUBLIC ${X11_INCLUDE_DIR} ${XFT_INCLUDE_DIRS})
     target_link_libraries(silvertune-impl PUBLIC pthread)
 endif()
 
