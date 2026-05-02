@@ -68,9 +68,12 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           mkdir -p dist
-          find build -name "Silvertune.clap" -exec cp -r {} dist/ \;
-          find build -name "Silvertune.vst3" -exec cp -r {} dist/ \;
+          find build -name "Silvertune.clap"      -exec cp -r {} dist/ \;
+          find build -name "Silvertune.vst3"      -exec cp -r {} dist/ \;
           find build -name "Silvertune.component" -exec cp -r {} dist/ \;
+          for p in dist/Silvertune.clap dist/Silvertune.vst3 dist/Silvertune.component; do
+            [ -e "$p" ] && codesign --sign - --deep --force --timestamp=none "$p"
+          done
           cd dist && zip -r ../${{ matrix.artifact }}.zip .
 
       - name: Package Windows
@@ -112,6 +115,12 @@ jobs:
             **Linux** — `~/.clap/` or `~/.vst3/`
             **macOS** — `~/Library/Audio/Plug-Ins/CLAP/` or `~/Library/Audio/Plug-Ins/VST3/`
             **Windows** — `%APPDATA%\CLAP\` or `C:\Program Files\Common Files\VST3\`
+
+            **macOS note** — if your DAW still won't scan the plugin, run once in Terminal:
+            ```bash
+            xattr -rd com.apple.quarantine ~/Library/Audio/Plug-Ins/CLAP/Silvertune.clap
+            xattr -rd com.apple.quarantine ~/Library/Audio/Plug-Ins/VST3/Silvertune.vst3
+            ```
           files: |
             artifacts/silvertune-linux/silvertune-linux.zip
             artifacts/silvertune-macos/silvertune-macos.zip
