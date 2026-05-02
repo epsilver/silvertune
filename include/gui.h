@@ -12,52 +12,72 @@
 static constexpr int GUI_W = 480;
 static constexpr int GUI_H = 200;
 
-// Left display panel
+// Header bar
+static constexpr int HDR_H = 20;
+
+// OLED display panel (left)
 static constexpr int DISP_X = 8;
-static constexpr int DISP_Y = 8;
-static constexpr int DISP_W = 148;
-static constexpr int DISP_H = 184;
+static constexpr int DISP_Y = 22;
+static constexpr int DISP_W = 155;
+static constexpr int DISP_H = 172;
 
-// KEY stepper
-static constexpr int KEY_LABEL_X  = 168;
-static constexpr int KEY_LABEL_Y  = 24;
-static constexpr int KEY_BTN_Y    = 38;
-static constexpr int KEY_LEFT_X   = 168;
-static constexpr int KEY_TEXT_X   = 190;
-static constexpr int KEY_RIGHT_X  = 232;
+// Arc needle (within OLED)
+static constexpr int ARC_PCX = DISP_X + DISP_W / 2;   // = 85
+static constexpr int ARC_PCY = DISP_Y + DISP_H - 52;  // = 142
+static constexpr int ARC_R   = 56;
 
-// SCALE stepper
-static constexpr int SCALE_LABEL_X = 296;
-static constexpr int SCALE_LABEL_Y = 24;
-static constexpr int SCALE_BTN_Y   = 38;
-static constexpr int SCALE_LEFT_X  = 296;
-static constexpr int SCALE_TEXT_X  = 318;
-static constexpr int SCALE_RIGHT_X = 380;
+// Piano keyboard (within OLED)
+static constexpr int PIANO_KX   = DISP_X + 4;   // = 12
+static constexpr int PIANO_KY   = DISP_Y + 8;   // = 30
+static constexpr int PIANO_WK_W = 20;
+static constexpr int PIANO_WK_H = 16;
+static constexpr int PIANO_BK_W = 12;
+static constexpr int PIANO_BK_H = 10;
 
-// WIDE slider
-static constexpr int WIDE_LABEL_X  = 168;
-static constexpr int WIDE_LABEL_Y  = 92;
-static constexpr int WIDE_PCT_X    = 440;
-static constexpr int WIDE_PCT_Y    = 92;
-static constexpr int WIDE_TRACK_X  = 168;
-static constexpr int WIDE_TRACK_Y  = 108;
-static constexpr int WIDE_TRACK_W  = 300;
-static constexpr int WIDE_TRACK_H  = 8;
-static constexpr int SLIDER_THUMB_R = 7;
+// Right control panel
+static constexpr int CTRL_X = 171;
+static constexpr int CTRL_W = 301;
 
-// TUNE slider
-static constexpr int TUNE_LABEL_X  = 168;
-static constexpr int TUNE_LABEL_Y  = 144;
-static constexpr int TUNE_PCT_X    = 440;
-static constexpr int TUNE_PCT_Y    = 144;
-static constexpr int TUNE_TRACK_X  = 168;
-static constexpr int TUNE_TRACK_Y  = 160;
-static constexpr int TUNE_TRACK_W  = 300;
-static constexpr int TUNE_TRACK_H  = 8;
+// KEY stepper (left section of controls)
+static constexpr int KEY_LABEL_X  = 175;
+static constexpr int KEY_LABEL_Y  = 30;
+static constexpr int KEY_BTN_Y    = 44;
+static constexpr int KEY_LEFT_X   = 175;
+static constexpr int KEY_TEXT_X   = 197;   // 175 + 16(arrow) + 6(gap)
+static constexpr int KEY_RIGHT_X  = 229;   // 197 + max "A#"(26px at 2x) + 6
+
+// SCALE stepper (right section of controls)
+static constexpr int SCALE_LABEL_X = 317;
+static constexpr int SCALE_LABEL_Y = 30;
+static constexpr int SCALE_BTN_Y   = 44;
+static constexpr int SCALE_LEFT_X  = 317;
+static constexpr int SCALE_TEXT_X  = 339;
+static constexpr int SCALE_RIGHT_X = 451;  // 339 + "Chromatic"(62px at 1x) + 6 + buffer
 
 // Stepper button size
 static constexpr int STEPPER_BTN_W = 16;
 static constexpr int STEPPER_BTN_H = 16;
+
+// WIDE slider
+static constexpr int WIDE_LABEL_X  = 175;
+static constexpr int WIDE_LABEL_Y  = 76;
+static constexpr int WIDE_PCT_X    = 434;
+static constexpr int WIDE_PCT_Y    = 76;
+static constexpr int WIDE_TRACK_X  = 175;
+static constexpr int WIDE_TRACK_Y  = 88;
+static constexpr int WIDE_TRACK_W  = 293;
+static constexpr int WIDE_TRACK_H  = 3;   // thin track
+static constexpr int SLIDER_THUMB_R = 6;
+
+// TUNE slider
+static constexpr int TUNE_LABEL_X  = 175;
+static constexpr int TUNE_LABEL_Y  = 130;
+static constexpr int TUNE_PCT_X    = 434;
+static constexpr int TUNE_PCT_Y    = 130;
+static constexpr int TUNE_TRACK_X  = 175;
+static constexpr int TUNE_TRACK_Y  = 142;
+static constexpr int TUNE_TRACK_W  = 293;
+static constexpr int TUNE_TRACK_H  = 3;
 
 // ---------------------------------------------------------------------------
 // Colors
@@ -67,15 +87,16 @@ struct GuiColor {
     uint8_t r, g, b;
 };
 
-static constexpr GuiColor COL_BG           = { 0x11, 0x11, 0x11 };
-static constexpr GuiColor COL_DISPLAY_BG   = { 0x00, 0x00, 0x00 };
-static constexpr GuiColor COL_GREEN        = { 0x00, 0xE0, 0x66 };
-static constexpr GuiColor COL_DIM_GREEN    = { 0x00, 0x55, 0x22 };
-static constexpr GuiColor COL_LABEL        = { 0x88, 0x88, 0x88 };
-static constexpr GuiColor COL_TRACK        = { 0x2A, 0x2A, 0x2A };
-static constexpr GuiColor COL_FILL         = { 0x00, 0xAA, 0x44 };
-static constexpr GuiColor COL_THUMB        = { 0x00, 0xFF, 0x66 };
-static constexpr GuiColor COL_WHITE        = { 0xFF, 0xFF, 0xFF };
+static constexpr GuiColor COL_BG         = { 0x0C, 0x0C, 0x0C };
+static constexpr GuiColor COL_DISPLAY_BG = { 0x00, 0x00, 0x00 };
+static constexpr GuiColor COL_ACCENT     = { 0x00, 0xFF, 0x88 };
+static constexpr GuiColor COL_DIM        = { 0x00, 0x33, 0x22 };
+static constexpr GuiColor COL_LABEL      = { 0x55, 0x55, 0x55 };
+static constexpr GuiColor COL_TRACK      = { 0x1A, 0x1A, 0x1A };
+static constexpr GuiColor COL_FILL       = { 0x00, 0xCC, 0x55 };
+static constexpr GuiColor COL_THUMB      = { 0x00, 0xFF, 0x88 };
+static constexpr GuiColor COL_WHITE      = { 0xFF, 0xFF, 0xFF };
+static constexpr GuiColor COL_HDR_SEP    = { 0x1A, 0x1A, 0x1A };
 
 // ---------------------------------------------------------------------------
 // Note / scale name helpers
@@ -121,17 +142,6 @@ static inline float slider_val(int px, int track_x, int track_w) {
     if (v > 1.0f) v = 1.0f;
     return v;
 }
-
-// ---------------------------------------------------------------------------
-// Piano layout constants (used by drawing and hit-testing)
-// ---------------------------------------------------------------------------
-
-static constexpr int PIANO_KX   = DISP_X + 4;
-static constexpr int PIANO_KY   = DISP_Y + 28;   // fixed; drawing code uses this too
-static constexpr int PIANO_WK_W = 20;
-static constexpr int PIANO_WK_H = 16;
-static constexpr int PIANO_BK_W = 12;
-static constexpr int PIANO_BK_H = 10;
 
 // ---------------------------------------------------------------------------
 // Hit test helpers

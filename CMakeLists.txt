@@ -28,9 +28,9 @@ add_library(silvertune-impl STATIC
 )
 
 if(WIN32)
-    target_sources(silvertune-impl PRIVATE src/gui_win32.cpp)
+    target_sources(silvertune-impl PRIVATE src/gui_win32.cpp src/inter_black.cpp)
 elseif(APPLE)
-    target_sources(silvertune-impl PRIVATE src/gui_cocoa.mm)
+    target_sources(silvertune-impl PRIVATE src/gui_cocoa.mm src/inter_black.cpp)
     target_link_libraries(silvertune-impl PUBLIC
         "-framework Cocoa"
         "-framework CoreGraphics"

@@ -4,6 +4,7 @@
 #include <CoreText/CoreText.h>
 #include <CoreGraphics/CoreGraphics.h>
 #include "gui.h"
+#include "inter_fonts.h"
 #include "silvertune.h"
 #include <cmath>
 #include <cstdio>
@@ -68,7 +69,7 @@ static inline void cg_right_triangle(CGContextRef ctx, CGFloat bx, CGFloat by,
     CGContextFillPath(ctx);
 }
 
-// Draw text using CoreText
+// Draw text using CoreText — x,y is baseline-left in flipped coordinates
 static void cgtext(CGContextRef ctx, CGFloat x, CGFloat y, const char *str,
                    CTFontRef font, CGFloat r, CGFloat g, CGFloat b) {
     if (!str || !font) return;
@@ -116,6 +117,20 @@ static CGFloat ct_text_width(const char *str, CTFontRef font) {
     return w;
 }
 
+// Draw text right-aligned so right edge is at x
+static void cgtext_r(CGContextRef ctx, CGFloat x, CGFloat y, const char *str,
+                     CTFontRef font, CGFloat r, CGFloat g, CGFloat b) {
+    CGFloat w = ct_text_width(str, font);
+    cgtext(ctx, x - w, y, str, font, r, g, b);
+}
+
+// Draw text centered horizontally around cx
+static void cgtext_c(CGContextRef ctx, CGFloat cx, CGFloat y, const char *str,
+                     CTFontRef font, CGFloat r, CGFloat g, CGFloat b) {
+    CGFloat w = ct_text_width(str, font);
+    cgtext(ctx, cx - w / 2.0, y, str, font, r, g, b);
+}
+
 // ---------------------------------------------------------------------------
 // SilvertuneView
 // ---------------------------------------------------------------------------
@@ -123,9 +138,8 @@ static CGFloat ct_text_width(const char *str, CTFontRef font) {
 @interface SilvertuneView : NSView {
     SilvertunePlugin *_plugin;
     NSTimer          *_timer;
-    CTFontRef         _fontLabel;   // ~10pt
-    CTFontRef         _fontValue;   // ~12pt
-    CTFontRef         _fontNote;    // ~18pt
+    CTFontRef         _fontSm;   // ~10pt — labels, values
+    CTFontRef         _fontLg;   // ~18pt — note name
 }
 - (instancetype)initWithPlugin:(SilvertunePlugin *)plugin;
 @end
@@ -136,13 +150,32 @@ static CGFloat ct_text_width(const char *str, CTFontRef font) {
     self = [super initWithFrame:NSMakeRect(0, 0, GUI_W, GUI_H)];
     if (self) {
         _plugin = plugin;
-        // Use Menlo first, fall back to Courier New
-        _fontLabel = CTFontCreateWithName(CFSTR("Menlo"), 10.0, nullptr);
-        if (!_fontLabel) _fontLabel = CTFontCreateWithName(CFSTR("Courier New"), 10.0, nullptr);
-        _fontValue = CTFontCreateWithName(CFSTR("Menlo"), 12.0, nullptr);
-        if (!_fontValue) _fontValue = CTFontCreateWithName(CFSTR("Courier New"), 12.0, nullptr);
-        _fontNote  = CTFontCreateWithName(CFSTR("Menlo-Bold"), 18.0, nullptr);
-        if (!_fontNote)  _fontNote  = CTFontCreateWithName(CFSTR("Courier New Bold"), 18.0, nullptr);
+
+        // Load Inter-Black from embedded bytes
+        CGDataProviderRef dp = CGDataProviderCreateWithData(
+            nullptr, INTER_BLACK_FONT, INTER_BLACK_FONT_LEN, nullptr);
+        CGFontRef cgFont = dp ? CGFontCreateWithDataProvider(dp) : nullptr;
+        _fontSm = nullptr;
+        _fontLg = nullptr;
+        if (cgFont) {
+            CFErrorRef err = nullptr;
+            CTFontManagerRegisterGraphicsFont(cgFont, &err);
+            if (err) CFRelease(err);
+            CFStringRef name = CGFontCopyFullName(cgFont);
+            if (name) {
+                _fontSm = CTFontCreateWithName(name, 10.0, nullptr);
+                _fontLg = CTFontCreateWithName(name, 18.0, nullptr);
+                CFRelease(name);
+            }
+            CGFontRelease(cgFont);
+        }
+        if (dp) CGDataProviderRelease(dp);
+
+        // Fallback fonts if Inter didn't load
+        if (!_fontSm) _fontSm = CTFontCreateWithName(CFSTR("Menlo"), 10.0, nullptr);
+        if (!_fontSm) _fontSm = CTFontCreateWithName(CFSTR("Courier New"), 10.0, nullptr);
+        if (!_fontLg) _fontLg = CTFontCreateWithName(CFSTR("Menlo-Bold"), 18.0, nullptr);
+        if (!_fontLg) _fontLg = CTFontCreateWithName(CFSTR("Courier New Bold"), 18.0, nullptr);
 
         _timer = [NSTimer scheduledTimerWithTimeInterval:1.0/30.0
                                                   target:self
@@ -156,9 +189,8 @@ static CGFloat ct_text_width(const char *str, CTFontRef font) {
 - (void)dealloc {
     [_timer invalidate];
     _timer = nil;
-    if (_fontLabel) { CFRelease(_fontLabel); _fontLabel = nullptr; }
-    if (_fontValue) { CFRelease(_fontValue); _fontValue = nullptr; }
-    if (_fontNote)  { CFRelease(_fontNote);  _fontNote  = nullptr; }
+    if (_fontSm) { CFRelease(_fontSm); _fontSm = nullptr; }
+    if (_fontLg) { CFRelease(_fontLg); _fontLg = nullptr; }
     [super dealloc];
 }
 
@@ -182,42 +214,39 @@ static CGFloat ct_text_width(const char *str, CTFontRef font) {
 #define G(c) ((c).g / 255.0)
 #define B(c) ((c).b / 255.0)
 
+    CGFloat font_sm_ascent = _fontSm ? CTFontGetAscent(_fontSm) : 8.0;
+    CGFloat font_lg_ascent = _fontLg ? CTFontGetAscent(_fontLg) : 14.0;
+    CGFloat font_sm_height = _fontSm ?
+        (CTFontGetAscent(_fontSm) + CTFontGetDescent(_fontSm) + CTFontGetLeading(_fontSm)) : 12.0;
+    CGFloat font_lg_height = _fontLg ?
+        (CTFontGetAscent(_fontLg) + CTFontGetDescent(_fontLg)) : 22.0;
+
     // Background
     cgfill(ctx, 0, 0, GUI_W, GUI_H, R(COL_BG), G(COL_BG), B(COL_BG));
 
-    // --- Left display panel (OLED arc needle meter) ---
+    // -----------------------------------------------------------------------
+    // Header bar
+    // -----------------------------------------------------------------------
+    cgtext(ctx, 8, 3 + font_lg_ascent, "SILVERTUNE",
+           _fontLg, R(COL_ACCENT), G(COL_ACCENT), B(COL_ACCENT));
+    cgtext_r(ctx, GUI_W - 8, 7 + font_sm_ascent, "VERTICAL RECTANGLE",
+             _fontSm, R(COL_LABEL), G(COL_LABEL), B(COL_LABEL));
+    cgline(ctx, 0, HDR_H, GUI_W, HDR_H, R(COL_HDR_SEP), G(COL_HDR_SEP), B(COL_HDR_SEP));
+
+    // -----------------------------------------------------------------------
+    // OLED display panel
+    // -----------------------------------------------------------------------
     cgrect(ctx, DISP_X, DISP_Y, DISP_W, DISP_H,
-           R(COL_DIM_GREEN), G(COL_DIM_GREEN), B(COL_DIM_GREEN));
+           R(COL_DIM), G(COL_DIM), B(COL_DIM));
     cgfill(ctx, DISP_X + 1, DISP_Y + 1, DISP_W - 2, DISP_H - 2,
            R(COL_DISPLAY_BG), G(COL_DISPLAY_BG), B(COL_DISPLAY_BG));
 
-    const CGFloat pcx   = DISP_X + DISP_W / 2.0;
-    const CGFloat pcy   = DISP_Y + DISP_H - 60.0;
-    const CGFloat arc_r = 54.0;
-
-    CGFloat font_label_ascent = CTFontGetAscent(_fontLabel);
-    CGFloat font_label_height = CTFontGetAscent(_fontLabel) + CTFontGetDescent(_fontLabel) + CTFontGetLeading(_fontLabel);
-    CGFloat font_value_ascent = CTFontGetAscent(_fontValue);
-    CGFloat font_value_height = CTFontGetAscent(_fontValue) + CTFontGetDescent(_fontValue);
-
-    // Title centered
-    {
-        CGFloat tw = ct_text_width("SILVERTUNE", _fontLabel);
-        cgtext(ctx, pcx - tw / 2.0, DISP_Y + 5 + font_label_ascent, "SILVERTUNE",
-               _fontLabel, R(COL_GREEN), G(COL_GREEN), B(COL_GREEN));
-    }
-
-    // Separator
-    CGFloat sep_y = DISP_Y + 5 + font_label_height + 3;
-    cgline(ctx, DISP_X + 2, sep_y, DISP_X + DISP_W - 3, sep_y,
-           R(COL_DIM_GREEN), G(COL_DIM_GREEN), B(COL_DIM_GREEN));
-
-    // Read pitch state (shared by piano, needle, and CORR display)
+    // Read pitch state
     float dmidi  = p->gui_det_midi.load(std::memory_order_relaxed);
     int   corr   = p->gui_corr.load(std::memory_order_relaxed);
     bool  active = (corr >= 0 && dmidi >= 0.0f);
 
-    // Mini piano: one octave C-B, highlight corrected note class
+    // Piano keyboard
     {
         static const int WK[7] = { 0, 2, 4, 5, 7, 9, 11 };
         struct BkDef { int note, dx; };
@@ -231,17 +260,17 @@ static CGFloat ct_text_width(const char *str, CTFontRef font) {
             bool lit  = (WK[i] == hi);
             if (lit)
                 cgfill(ctx, x, PIANO_KY, PIANO_WK_W - 1, PIANO_WK_H,
-                       R(COL_GREEN), G(COL_GREEN), B(COL_GREEN));
+                       R(COL_ACCENT), G(COL_ACCENT), B(COL_ACCENT));
             else
                 cgrect(ctx, x, PIANO_KY, PIANO_WK_W, PIANO_WK_H + 1,
-                       R(COL_DIM_GREEN), G(COL_DIM_GREEN), B(COL_DIM_GREEN));
+                       R(COL_DIM), G(COL_DIM), B(COL_DIM));
         }
         for (int i = 0; i < 5; ++i) {
             CGFloat x = PIANO_KX + BK[i].dx;
             bool lit  = (BK[i].note == hi);
             if (lit)
                 cgfill(ctx, x, PIANO_KY, PIANO_BK_W, PIANO_BK_H,
-                       R(COL_GREEN), G(COL_GREEN), B(COL_GREEN));
+                       R(COL_ACCENT), G(COL_ACCENT), B(COL_ACCENT));
             else
                 cgfill(ctx, x, PIANO_KY, PIANO_BK_W, PIANO_BK_H,
                        R(COL_LABEL), G(COL_LABEL), B(COL_LABEL));
@@ -268,14 +297,14 @@ static CGFloat ct_text_width(const char *str, CTFontRef font) {
     }
     float dc = p->gui.disp_cents;
 
-    // Arc: upper semicircle as polyline (smooth with CG anti-aliasing)
-    CGContextSetRGBStrokeColor(ctx, R(COL_DIM_GREEN), G(COL_DIM_GREEN), B(COL_DIM_GREEN), 1.0);
+    // Arc: upper semicircle
+    CGContextSetRGBStrokeColor(ctx, R(COL_DIM), G(COL_DIM), B(COL_DIM), 1.0);
     CGContextSetLineWidth(ctx, 1.0);
     CGContextBeginPath(ctx);
     for (int i = 0; i <= 48; ++i) {
         double a = (double)i * M_PI / 48.0;
-        CGFloat x = pcx + (CGFloat)(arc_r * std::cos(a));
-        CGFloat y = pcy - (CGFloat)(arc_r * std::sin(a));
+        CGFloat x = ARC_PCX + (CGFloat)(ARC_R * std::cos(a));
+        CGFloat y = ARC_PCY - (CGFloat)(ARC_R * std::sin(a));
         if (i == 0) CGContextMoveToPoint(ctx, x, y);
         else        CGContextAddLineToPoint(ctx, x, y);
     }
@@ -289,12 +318,12 @@ static CGFloat ct_text_width(const char *str, CTFontRef font) {
         for (auto &tk : ticks) {
             double a  = (90.0 - tk.cv * 90.0 / 50.0) * M_PI / 180.0;
             double ca = std::cos(a), sa = std::sin(a);
-            CGFloat ix = pcx + (CGFloat)((arc_r - tk.len) * ca);
-            CGFloat iy = pcy - (CGFloat)((arc_r - tk.len) * sa);
-            CGFloat ox = pcx + (CGFloat)((arc_r + 3)      * ca);
-            CGFloat oy = pcy - (CGFloat)((arc_r + 3)      * sa);
+            CGFloat ix = ARC_PCX + (CGFloat)((ARC_R - tk.len) * ca);
+            CGFloat iy = ARC_PCY - (CGFloat)((ARC_R - tk.len) * sa);
+            CGFloat ox = ARC_PCX + (CGFloat)((ARC_R + 3)      * ca);
+            CGFloat oy = ARC_PCY - (CGFloat)((ARC_R + 3)      * sa);
             if (tk.cv == 0)
-                cgline(ctx, ix, iy, ox, oy, R(COL_DIM_GREEN), G(COL_DIM_GREEN), B(COL_DIM_GREEN));
+                cgline(ctx, ix, iy, ox, oy, R(COL_DIM), G(COL_DIM), B(COL_DIM));
             else
                 cgline(ctx, ix, iy, ox, oy, R(COL_LABEL), G(COL_LABEL), B(COL_LABEL));
         }
@@ -303,49 +332,62 @@ static CGFloat ct_text_width(const char *str, CTFontRef font) {
     // Needle from pivot to arc, smoothed
     {
         double a   = (90.0 - (double)dc * 90.0 / 50.0) * M_PI / 180.0;
-        CGFloat nx = pcx + (CGFloat)((arc_r - 5) * std::cos(a));
-        CGFloat ny = pcy - (CGFloat)((arc_r - 5) * std::sin(a));
+        CGFloat nx = ARC_PCX + (CGFloat)((ARC_R - 5) * std::cos(a));
+        CGFloat ny = ARC_PCY - (CGFloat)((ARC_R - 5) * std::sin(a));
         bool in_tune = std::fabs(dc) < 5.0f;
         if (!active)
-            cgline(ctx, pcx, pcy, nx, ny, R(COL_LABEL), G(COL_LABEL), B(COL_LABEL));
+            cgline(ctx, ARC_PCX, ARC_PCY, nx, ny, R(COL_LABEL), G(COL_LABEL), B(COL_LABEL));
         else if (in_tune)
-            cgline(ctx, pcx, pcy, nx, ny, R(COL_GREEN), G(COL_GREEN), B(COL_GREEN));
+            cgline(ctx, ARC_PCX, ARC_PCY, nx, ny, R(COL_ACCENT), G(COL_ACCENT), B(COL_ACCENT));
         else
-            cgline(ctx, pcx, pcy, nx, ny, 1.0, 1.0, 1.0);
+            cgline(ctx, ARC_PCX, ARC_PCY, nx, ny, 1.0, 1.0, 1.0);
 
-        CGFloat nr = active ? (in_tune ? R(COL_GREEN) : 1.0) : R(COL_LABEL);
-        CGFloat ng = active ? (in_tune ? G(COL_GREEN) : 1.0) : G(COL_LABEL);
-        CGFloat nb = active ? (in_tune ? B(COL_GREEN) : 1.0) : B(COL_LABEL);
-        cgcircle(ctx, nx,  ny,  2.0, nr, ng, nb);
-        cgcircle(ctx, pcx, pcy, 2.0, R(COL_DIM_GREEN), G(COL_DIM_GREEN), B(COL_DIM_GREEN));
+        CGFloat nr = active ? (in_tune ? R(COL_ACCENT) : 1.0) : R(COL_LABEL);
+        CGFloat ng = active ? (in_tune ? G(COL_ACCENT) : 1.0) : G(COL_LABEL);
+        CGFloat nb = active ? (in_tune ? B(COL_ACCENT) : 1.0) : B(COL_LABEL);
+        cgcircle(ctx, nx,      ny,      2.0, nr, ng, nb);
+        cgcircle(ctx, ARC_PCX, ARC_PCY, 2.0, R(COL_DIM), G(COL_DIM), B(COL_DIM));
     }
 
-    // CORR note below pivot (centered)
+    // Corrected note name below pivot (centered), large font
     {
         const char *corr_str = (corr >= 0) ? NOTE_NAMES[corr % 12] : "--";
-        CGFloat nw = ct_text_width(corr_str, _fontValue);
-        cgtext(ctx, pcx - nw / 2.0, pcy + 14 + font_value_ascent, corr_str,
-               _fontValue, 1.0, 1.0, 1.0);
+        bool in_tune = active && std::fabs(dc) < 5.0f;
+        CGFloat nr = in_tune ? R(COL_ACCENT) : R(COL_WHITE);
+        CGFloat ng = in_tune ? G(COL_ACCENT) : G(COL_WHITE);
+        CGFloat nb = in_tune ? B(COL_ACCENT) : B(COL_WHITE);
+        cgtext_c(ctx, ARC_PCX, ARC_PCY + 14 + font_lg_ascent, corr_str, _fontLg, nr, ng, nb);
     }
 
-    // Cents value below CORR note
-    if (active) {
-        float raw = (dmidi - (float)corr) * 100.0f;
+    // Cents value below note name, small font
+    {
         char cbuf[16];
-        snprintf(cbuf, sizeof(cbuf), "%+.0fc", raw);
-        CGFloat cw = ct_text_width(cbuf, _fontLabel);
-        bool in_tune = std::fabs(dc) < 5.0f;
-        cgtext(ctx, pcx - cw / 2.0,
-               pcy + 14 + font_value_height + 4 + font_label_ascent,
-               cbuf, _fontLabel,
-               in_tune ? R(COL_GREEN) : R(COL_LABEL),
-               in_tune ? G(COL_GREEN) : G(COL_LABEL),
-               in_tune ? B(COL_GREEN) : B(COL_LABEL));
+        if (active) {
+            float raw = (dmidi - (float)corr) * 100.0f;
+            snprintf(cbuf, sizeof(cbuf), "%+.0fc", raw);
+        } else {
+            snprintf(cbuf, sizeof(cbuf), "--");
+        }
+        bool in_tune = active && std::fabs(dc) < 5.0f;
+        CGFloat cr = in_tune ? R(COL_ACCENT) : R(COL_LABEL);
+        CGFloat cg = in_tune ? G(COL_ACCENT) : G(COL_LABEL);
+        CGFloat cb = in_tune ? B(COL_ACCENT) : B(COL_LABEL);
+        cgtext_c(ctx, ARC_PCX, ARC_PCY + 14 + font_lg_height + 4 + font_sm_ascent,
+                 cbuf, _fontSm, cr, cg, cb);
     }
 
-    // --- KEY stepper ---
-    cgtext(ctx, KEY_LABEL_X, KEY_LABEL_Y + font_label_ascent, "KEY",
-           _fontLabel, R(COL_LABEL), G(COL_LABEL), B(COL_LABEL));
+    // -----------------------------------------------------------------------
+    // Right control panel separator
+    // -----------------------------------------------------------------------
+    cgline(ctx, DISP_X + DISP_W + 4, DISP_Y,
+               DISP_X + DISP_W + 4, DISP_Y + DISP_H,
+           R(COL_HDR_SEP), G(COL_HDR_SEP), B(COL_HDR_SEP));
+
+    // -----------------------------------------------------------------------
+    // KEY stepper
+    // -----------------------------------------------------------------------
+    cgtext(ctx, KEY_LABEL_X, KEY_LABEL_Y + font_sm_ascent, "KEY",
+           _fontSm, R(COL_LABEL), G(COL_LABEL), B(COL_LABEL));
     cg_left_triangle(ctx, KEY_LEFT_X, KEY_BTN_Y,
                      R(COL_LABEL), G(COL_LABEL), B(COL_LABEL));
     cg_right_triangle(ctx, KEY_RIGHT_X, KEY_BTN_Y,
@@ -353,13 +395,15 @@ static CGFloat ct_text_width(const char *str, CTFontRef font) {
     {
         int key = (int)std::lround(p->param_key.load());
         key = ((key % 12) + 12) % 12;
-        cgtext(ctx, KEY_TEXT_X, KEY_BTN_Y + font_value_ascent, NOTE_NAMES[key],
-               _fontValue, R(COL_GREEN), G(COL_GREEN), B(COL_GREEN));
+        cgtext(ctx, KEY_TEXT_X, KEY_BTN_Y + font_sm_ascent, NOTE_NAMES[key],
+               _fontSm, R(COL_WHITE), G(COL_WHITE), B(COL_WHITE));
     }
 
-    // --- SCALE stepper ---
-    cgtext(ctx, SCALE_LABEL_X, SCALE_LABEL_Y + font_label_ascent, "SCALE",
-           _fontLabel, R(COL_LABEL), G(COL_LABEL), B(COL_LABEL));
+    // -----------------------------------------------------------------------
+    // SCALE stepper
+    // -----------------------------------------------------------------------
+    cgtext(ctx, SCALE_LABEL_X, SCALE_LABEL_Y + font_sm_ascent, "SCALE",
+           _fontSm, R(COL_LABEL), G(COL_LABEL), B(COL_LABEL));
     cg_left_triangle(ctx, SCALE_LEFT_X, SCALE_BTN_Y,
                      R(COL_LABEL), G(COL_LABEL), B(COL_LABEL));
     cg_right_triangle(ctx, SCALE_RIGHT_X, SCALE_BTN_Y,
@@ -368,21 +412,28 @@ static CGFloat ct_text_width(const char *str, CTFontRef font) {
         int ps = (int)std::lround(p->param_scale.load());
         ps = ps < 0 ? 0 : (ps > 2 ? 2 : ps);
         int gs = PARAM_TO_GUI_SCALE[ps];
-        cgtext(ctx, SCALE_TEXT_X, SCALE_BTN_Y + font_value_ascent, SCALE_NAMES_GUI[gs],
-               _fontValue, R(COL_GREEN), G(COL_GREEN), B(COL_GREEN));
+        cgtext(ctx, SCALE_TEXT_X, SCALE_BTN_Y + font_sm_ascent, SCALE_NAMES_GUI[gs],
+               _fontSm, R(COL_WHITE), G(COL_WHITE), B(COL_WHITE));
     }
 
-    // --- WIDE slider ---
+    // Horizontal divider
+    cgline(ctx, CTRL_X, KEY_BTN_Y + 20, GUI_W - 8, KEY_BTN_Y + 20,
+           R(COL_HDR_SEP), G(COL_HDR_SEP), B(COL_HDR_SEP));
+
+    // -----------------------------------------------------------------------
+    // WIDE slider
+    // -----------------------------------------------------------------------
     {
         float wide = (float)p->param_wide.load();
         char pct[16];
         snprintf(pct, sizeof(pct), "%.0f%%", wide * 100.0f);
-        cgtext(ctx, WIDE_LABEL_X, WIDE_LABEL_Y + font_label_ascent, "WIDE",
-               _fontLabel, R(COL_LABEL), G(COL_LABEL), B(COL_LABEL));
-        // Right-align percent
-        CGFloat pw = ct_text_width(pct, _fontValue);
-        cgtext(ctx, WIDE_PCT_X - pw, WIDE_PCT_Y + font_value_ascent, pct,
-               _fontValue, R(COL_LABEL), G(COL_LABEL), B(COL_LABEL));
+        cgtext(ctx, WIDE_LABEL_X, WIDE_LABEL_Y + font_sm_ascent, "WIDE",
+               _fontSm, R(COL_LABEL), G(COL_LABEL), B(COL_LABEL));
+        // Right-align percentage
+        CGFloat pr = wide > 0.0f ? R(COL_WHITE) : R(COL_LABEL);
+        CGFloat pg = wide > 0.0f ? G(COL_WHITE) : G(COL_LABEL);
+        CGFloat pb = wide > 0.0f ? B(COL_WHITE) : B(COL_LABEL);
+        cgtext_r(ctx, WIDE_PCT_X, WIDE_PCT_Y + font_sm_ascent, pct, _fontSm, pr, pg, pb);
         // Track
         cgfill(ctx, WIDE_TRACK_X, WIDE_TRACK_Y, WIDE_TRACK_W, WIDE_TRACK_H,
                R(COL_TRACK), G(COL_TRACK), B(COL_TRACK));
@@ -396,16 +447,19 @@ static CGFloat ct_text_width(const char *str, CTFontRef font) {
                  R(COL_THUMB), G(COL_THUMB), B(COL_THUMB));
     }
 
-    // --- TUNE slider ---
+    // -----------------------------------------------------------------------
+    // TUNE slider
+    // -----------------------------------------------------------------------
     {
         float tune = (float)p->param_speed.load();
         char pct[16];
         snprintf(pct, sizeof(pct), "%.0f%%", tune * 100.0f);
-        cgtext(ctx, TUNE_LABEL_X, TUNE_LABEL_Y + font_label_ascent, "TUNE",
-               _fontLabel, R(COL_LABEL), G(COL_LABEL), B(COL_LABEL));
-        CGFloat pw = ct_text_width(pct, _fontValue);
-        cgtext(ctx, TUNE_PCT_X - pw, TUNE_PCT_Y + font_value_ascent, pct,
-               _fontValue, R(COL_LABEL), G(COL_LABEL), B(COL_LABEL));
+        cgtext(ctx, TUNE_LABEL_X, TUNE_LABEL_Y + font_sm_ascent, "TUNE",
+               _fontSm, R(COL_LABEL), G(COL_LABEL), B(COL_LABEL));
+        CGFloat pr = tune > 0.0f ? R(COL_WHITE) : R(COL_LABEL);
+        CGFloat pg = tune > 0.0f ? G(COL_WHITE) : G(COL_LABEL);
+        CGFloat pb = tune > 0.0f ? B(COL_WHITE) : B(COL_LABEL);
+        cgtext_r(ctx, TUNE_PCT_X, TUNE_PCT_Y + font_sm_ascent, pct, _fontSm, pr, pg, pb);
         cgfill(ctx, TUNE_TRACK_X, TUNE_TRACK_Y, TUNE_TRACK_W, TUNE_TRACK_H,
                R(COL_TRACK), G(COL_TRACK), B(COL_TRACK));
         int fw = slider_px(tune, TUNE_TRACK_X, TUNE_TRACK_W) - TUNE_TRACK_X;
@@ -567,7 +621,6 @@ void gui_destroy(SilvertunePlugin *p) {
     if (p->gui.handle) {
         SilvertuneView *view = (__bridge_transfer SilvertuneView *)p->gui.handle;
         p->gui.handle = nullptr;
-        // Stop timer via dealloc; remove from superview
         [view removeFromSuperview];
         view = nil;
     }
