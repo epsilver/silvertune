@@ -19,7 +19,7 @@ jobs:
         include:
           - os: ubuntu-22.04
             artifact: silvertune-linux
-          - os: macos-latest
+          - os: macos-13
             artifact: silvertune-macos
           - os: windows-latest
             artifact: silvertune-windows
