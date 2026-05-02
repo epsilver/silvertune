@@ -67,8 +67,9 @@ static void process_events(SilvertunePlugin *p, const clap_input_events_t *in) {
             switch (ev->param_id) {
             case PARAM_KEY:   p->param_key.store(ev->value);   break;
             case PARAM_SCALE: p->param_scale.store(ev->value); break;
-            case PARAM_WIDE:  p->param_wide.store(ev->value);   break;
-            case PARAM_SPEED: p->param_speed.store(ev->value);  break;
+            case PARAM_WIDE:  p->param_wide.store(ev->value);  break;
+            case PARAM_SPEED: p->param_speed.store(ev->value); break;
+            case PARAM_HOLD:  p->param_hold.store(ev->value);  break;
             }
         }
     }
@@ -91,9 +92,22 @@ clap_process_status silvertune_process(SilvertunePlugin *p, const clap_process_t
     process_events(p, process->in_events);
 
     int root_key = (int)std::lround(p->param_key.load());
-    auto scale = static_cast<ScaleType>((int)std::lround(p->param_scale.load()));
-    float wide = static_cast<float>(p->param_wide.load());
-    float speed = static_cast<float>(p->param_speed.load());
+    auto scale   = static_cast<ScaleType>((int)std::lround(p->param_scale.load()));
+    float wide     = static_cast<float>(p->param_wide.load());
+    float speed_ms = static_cast<float>(p->param_speed.load());
+    float hold_ms  = static_cast<float>(p->param_hold.load());
+
+    // Speed → per-sample exponential chase coefficient (99% in speed_ms ms)
+    float chase_coeff;
+    if (speed_ms <= 0.0f) {
+        chase_coeff = 1.0f;
+    } else {
+        float tau = speed_ms * static_cast<float>(p->sample_rate) / 1000.0f;
+        chase_coeff = 1.0f - std::exp(-4.6f / tau);
+    }
+
+    // Hold threshold in samples (0 = commit immediately on first confident hop)
+    float hold_threshold = hold_ms * static_cast<float>(p->sample_rate) / 1000.0f;
 
     // Sum to mono for pitch detection
     for (uint32_t i = 0; i < frames; ++i) {
@@ -113,32 +127,37 @@ clap_process_status silvertune_process(SilvertunePlugin *p, const clap_process_t
 
             if (hz > 50.0f && hz < 2000.0f && conf > 0.5f) {
                 float det_midi = hz_to_midi(hz);
-                // Stay locked if within 40 cents of the locked note
-                bool stays_locked = p->locked_midi >= 0.0f &&
-                                    std::fabs(det_midi - p->locked_midi) < 0.4f;
-                if (!stays_locked) p->locked_midi = det_midi;
+
+                // Lock-once: grab midi on first confident hop, never update until released
+                if (p->locked_midi < 0.0f) {
+                    p->locked_midi   = det_midi;
+                    p->hold_counter  = 0.0f;
+                }
                 p->low_conf_count = 0;
 
-                int det_note_int  = static_cast<int>(std::round(p->locked_midi));
-                int nearest = quantize_to_scale(det_note_int, root_key, scale);
-                float target_hz = midi_to_hz(static_cast<float>(nearest));
-                float ratio = target_hz / hz;
-                ratio = 1.0f + (ratio - 1.0f) * speed;
-                p->held_ratio = std::clamp(ratio, 0.5f, 2.0f);
+                // Accumulate hold timer; commit ratio once threshold is met
+                p->hold_counter += static_cast<float>(YinDetector::HOP_SIZE);
+                if (p->hold_counter >= hold_threshold) {
+                    int det_note_int = static_cast<int>(std::round(p->locked_midi));
+                    int nearest      = quantize_to_scale(det_note_int, root_key, scale);
+                    float ref_hz     = midi_to_hz(p->locked_midi);
+                    float ratio      = midi_to_hz(static_cast<float>(nearest)) / ref_hz;
+                    p->held_ratio    = std::clamp(ratio, 0.5f, 2.0f);
 
-                // Update GUI display state
-                p->gui_det.store(det_note_int,        std::memory_order_relaxed);
-                p->gui_corr.store(nearest,             std::memory_order_relaxed);
-                p->gui_det_midi.store(p->locked_midi,  std::memory_order_relaxed);
-                p->gui_det_frame.fetch_add(1,          std::memory_order_relaxed);
+                    p->gui_det.store(det_note_int,       std::memory_order_relaxed);
+                    p->gui_corr.store(nearest,            std::memory_order_relaxed);
+                    p->gui_det_midi.store(p->locked_midi, std::memory_order_relaxed);
+                    p->gui_det_frame.fetch_add(1,         std::memory_order_relaxed);
+                }
             } else if (conf < 0.35f) {
                 if (++p->low_conf_count >= 3) {
                     p->locked_midi    = -1.0f;
+                    p->hold_counter   = 0.0f;
                     p->low_conf_count = 0;
                     p->held_ratio     = 1.0f;
                     p->current_ratio  = 1.0f;
-                    p->gui_det.store(-1, std::memory_order_relaxed);
-                    p->gui_corr.store(-1, std::memory_order_relaxed);
+                    p->gui_det.store(-1,    std::memory_order_relaxed);
+                    p->gui_corr.store(-1,   std::memory_order_relaxed);
                     p->gui_det_midi.store(-1.0f, std::memory_order_relaxed);
                 }
             }
@@ -153,9 +172,6 @@ clap_process_status silvertune_process(SilvertunePlugin *p, const clap_process_t
         float rms = std::sqrt(sum_sq / static_cast<float>(frames));
         p->gui_rms.store(rms, std::memory_order_relaxed);
     }
-
-    // Exponential approach: at speed=1 snap immediately, otherwise glide
-    float chase_coeff = (speed >= 1.0f) ? 1.0f : speed * speed * 0.03f;
 
     // Process each sample through the grain shifter + doubler
     for (uint32_t i = 0; i < frames; ++i) {

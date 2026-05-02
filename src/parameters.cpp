@@ -54,11 +54,21 @@ static bool params_get_info(const clap_plugin_t *, uint32_t index, clap_param_in
     case PARAM_SPEED:
         info->id = PARAM_SPEED;
         info->flags = CLAP_PARAM_IS_AUTOMATABLE;
-        strncpy(info->name, "Tune Strength", CLAP_NAME_SIZE);
+        strncpy(info->name, "Speed", CLAP_NAME_SIZE);
         info->module[0] = '\0';
         info->min_value = 0.0;
-        info->max_value = 1.0;
-        info->default_value = 1.0;
+        info->max_value = 100.0;
+        info->default_value = 0.0;
+        return true;
+
+    case PARAM_HOLD:
+        info->id = PARAM_HOLD;
+        info->flags = CLAP_PARAM_IS_AUTOMATABLE;
+        strncpy(info->name, "Hold", CLAP_NAME_SIZE);
+        info->module[0] = '\0';
+        info->min_value = 0.0;
+        info->max_value = 200.0;
+        info->default_value = 0.0;
         return true;
 
     default:
@@ -72,7 +82,8 @@ static bool params_get_value(const clap_plugin_t *plugin, clap_id param_id, doub
     case PARAM_KEY:   *value = p->param_key.load();   return true;
     case PARAM_SCALE: *value = p->param_scale.load(); return true;
     case PARAM_WIDE:  *value = p->param_wide.load();  return true;
-    case PARAM_SPEED: *value = p->param_speed.load();  return true;
+    case PARAM_SPEED: *value = p->param_speed.load(); return true;
+    case PARAM_HOLD:  *value = p->param_hold.load();  return true;
     default: return false;
     }
 }
@@ -96,7 +107,9 @@ static bool params_value_to_text(const clap_plugin_t *, clap_id param_id, double
         snprintf(buf, buf_size, "%.0f%%", value * 100.0);
         return true;
     case PARAM_SPEED:
-        snprintf(buf, buf_size, "%.0f%%", value * 100.0);
+    case PARAM_HOLD:
+        if (value <= 0.0) snprintf(buf, buf_size, "0ms");
+        else snprintf(buf, buf_size, "%.0fms", value);
         return true;
     default:
         return false;
@@ -122,14 +135,19 @@ static bool params_text_to_value(const clap_plugin_t *, clap_id param_id,
             }
         }
         return false;
-    case PARAM_WIDE:
-    case PARAM_SPEED: {
+    case PARAM_WIDE: {
         double v;
         if (sscanf(text, "%lf", &v) == 1) {
             if (v > 1.0) v /= 100.0;
             *value = v;
             return true;
         }
+        return false;
+    }
+    case PARAM_SPEED:
+    case PARAM_HOLD: {
+        double v;
+        if (sscanf(text, "%lf", &v) == 1) { *value = v; return true; }
         return false;
     }
     default:
@@ -151,8 +169,9 @@ static void params_flush(const clap_plugin_t *plugin,
             switch (ev->param_id) {
             case PARAM_KEY:   p->param_key.store(ev->value);   break;
             case PARAM_SCALE: p->param_scale.store(ev->value); break;
-            case PARAM_WIDE:  p->param_wide.store(ev->value);   break;
-            case PARAM_SPEED: p->param_speed.store(ev->value);  break;
+            case PARAM_WIDE:  p->param_wide.store(ev->value);  break;
+            case PARAM_SPEED: p->param_speed.store(ev->value); break;
+            case PARAM_HOLD:  p->param_hold.store(ev->value);  break;
             }
         }
     }
@@ -176,7 +195,8 @@ static bool state_save(const clap_plugin_t *plugin, const clap_ostream_t *stream
         p->param_key.load(),
         p->param_scale.load(),
         p->param_wide.load(),
-        p->param_speed.load()
+        p->param_speed.load(),
+        p->param_hold.load(),
     };
     int64_t written = 0;
     int64_t total = sizeof(values);
@@ -192,20 +212,24 @@ static bool state_save(const clap_plugin_t *plugin, const clap_ostream_t *stream
 
 static bool state_load(const clap_plugin_t *plugin, const clap_istream_t *stream) {
     auto *p = static_cast<SilvertunePlugin *>(plugin->plugin_data);
-    double values[PARAM_COUNT];
+    double values[PARAM_COUNT] = {};
     int64_t read_total = 0;
-    int64_t total = sizeof(values);
+    int64_t total = (int64_t)sizeof(values);
     while (read_total < total) {
         int64_t n = stream->read(stream,
                                   reinterpret_cast<char *>(values) + read_total,
                                   total - read_total);
-        if (n <= 0) return false;
+        if (n <= 0) break;
         read_total += n;
     }
+    // Accept partial reads for forward/backward compat
+    if (read_total < (int64_t)(4 * sizeof(double))) return false;
     p->param_key.store(values[PARAM_KEY]);
     p->param_scale.store(values[PARAM_SCALE]);
     p->param_wide.store(values[PARAM_WIDE]);
     p->param_speed.store(values[PARAM_SPEED]);
+    if (read_total >= (int64_t)(5 * sizeof(double)))
+        p->param_hold.store(values[PARAM_HOLD]);
     return true;
 }
 

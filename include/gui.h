@@ -70,15 +70,25 @@ static constexpr int WIDE_TRACK_W  = GUI_W - 8 - 224;  // = 408
 static constexpr int WIDE_TRACK_H  = 3;
 static constexpr int SLIDER_THUMB_R = 8;
 
-// TUNE slider
-static constexpr int TUNE_LABEL_X  = 224;
-static constexpr int TUNE_LABEL_Y  = 204;
-static constexpr int TUNE_PCT_X    = GUI_W - 8;   // = 632
-static constexpr int TUNE_PCT_Y    = 204;
-static constexpr int TUNE_TRACK_X  = 224;
-static constexpr int TUNE_TRACK_Y  = 224;
-static constexpr int TUNE_TRACK_W  = GUI_W - 8 - 224;  // = 408
-static constexpr int TUNE_TRACK_H  = 3;
+// SPEED slider (0–100 ms)
+static constexpr int SPEED_LABEL_X = 224;
+static constexpr int SPEED_LABEL_Y = 155;
+static constexpr int SPEED_PCT_X   = GUI_W - 8;
+static constexpr int SPEED_PCT_Y   = 155;
+static constexpr int SPEED_TRACK_X = 224;
+static constexpr int SPEED_TRACK_Y = 175;
+static constexpr int SPEED_TRACK_W = GUI_W - 8 - 224;  // = 408
+static constexpr int SPEED_TRACK_H = 3;
+
+// HOLD slider (0–200 ms)
+static constexpr int HOLD_LABEL_X  = 224;
+static constexpr int HOLD_LABEL_Y  = 204;
+static constexpr int HOLD_PCT_X    = GUI_W - 8;
+static constexpr int HOLD_PCT_Y    = 204;
+static constexpr int HOLD_TRACK_X  = 224;
+static constexpr int HOLD_TRACK_Y  = 224;
+static constexpr int HOLD_TRACK_W  = GUI_W - 8 - 224;  // = 408
+static constexpr int HOLD_TRACK_H  = 3;
 
 // ---------------------------------------------------------------------------
 // Colors
@@ -163,10 +173,15 @@ static inline bool hit_wide_track(int mx, int my) {
         WIDE_TRACK_X - SLIDER_THUMB_R, WIDE_TRACK_Y - SLIDER_THUMB_R,
         WIDE_TRACK_W + SLIDER_THUMB_R * 2, WIDE_TRACK_H + SLIDER_THUMB_R * 2);
 }
-static inline bool hit_tune_track(int mx, int my) {
+static inline bool hit_speed_track(int mx, int my) {
     return hit_rect(mx, my,
-        TUNE_TRACK_X - SLIDER_THUMB_R, TUNE_TRACK_Y - SLIDER_THUMB_R,
-        TUNE_TRACK_W + SLIDER_THUMB_R * 2, TUNE_TRACK_H + SLIDER_THUMB_R * 2);
+        SPEED_TRACK_X - SLIDER_THUMB_R, SPEED_TRACK_Y - SLIDER_THUMB_R,
+        SPEED_TRACK_W + SLIDER_THUMB_R * 2, SPEED_TRACK_H + SLIDER_THUMB_R * 2);
+}
+static inline bool hit_hold_track(int mx, int my) {
+    return hit_rect(mx, my,
+        HOLD_TRACK_X - SLIDER_THUMB_R, HOLD_TRACK_Y - SLIDER_THUMB_R,
+        HOLD_TRACK_W + SLIDER_THUMB_R * 2, HOLD_TRACK_H + SLIDER_THUMB_R * 2);
 }
 
 // Returns semitone 0-11 if the click lands on a piano key, -1 otherwise.
@@ -199,7 +214,8 @@ struct GuiState {
 
     // Drag state
     bool  drag_wide  = false;
-    bool  drag_tune  = false;
+    bool  drag_speed = false;
+    bool  drag_hold  = false;
     int   drag_x0    = 0;
     float drag_v0    = 0.0f;
 

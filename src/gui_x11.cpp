@@ -192,8 +192,8 @@ static void do_draw(X11Data *d) {
             }
         }
         if (p->gui.snap_cooldown > 0) --p->gui.snap_cooldown;
-        float tune  = (float)p->param_speed.load();
-        float decay = 0.4f + (1.0f - tune) * 0.55f;
+        float speed_norm = (float)p->param_speed.load() / 100.0f;
+        float decay = 0.4f + speed_norm * 0.55f;
         p->gui.disp_cents *= decay;
     }
     float dc = p->gui.disp_cents;
@@ -305,19 +305,39 @@ static void do_draw(X11Data *d) {
     }
 
     // -----------------------------------------------------------------------
-    // TUNE slider
+    // SPEED slider
     // -----------------------------------------------------------------------
     {
-        float tune = (float)p->param_speed.load();
-        char pct[16];
-        snprintf(pct, sizeof(pct), "%.0f%%", tune * 100.0f);
-        draw_str(d, TUNE_LABEL_X, TUNE_LABEL_Y, "TUNE", d->xft_sm);
-        draw_str_r(d, TUNE_PCT_X, TUNE_PCT_Y, pct, d->xft_sm);
-        fill_rect(d, buf, TUNE_TRACK_X, TUNE_TRACK_Y, TUNE_TRACK_W, TUNE_TRACK_H, C_TRACK);
-        int fw = slider_px(tune, TUNE_TRACK_X, TUNE_TRACK_W) - TUNE_TRACK_X;
-        if (fw > 0) fill_rect(d, buf, TUNE_TRACK_X, TUNE_TRACK_Y, fw, TUNE_TRACK_H, C_FILL);
-        int tx = slider_px(tune, TUNE_TRACK_X, TUNE_TRACK_W);
-        fill_circle(d, buf, tx, TUNE_TRACK_Y + TUNE_TRACK_H / 2, SLIDER_THUMB_R, C_THUMB);
+        float speed_ms = (float)p->param_speed.load();
+        char val[16];
+        if (speed_ms <= 0.0f) snprintf(val, sizeof(val), "0ms");
+        else snprintf(val, sizeof(val), "%.0fms", speed_ms);
+        draw_str(d, SPEED_LABEL_X, SPEED_LABEL_Y, "SPEED", d->xft_sm);
+        draw_str_r(d, SPEED_PCT_X, SPEED_PCT_Y, val, d->xft_sm);
+        fill_rect(d, buf, SPEED_TRACK_X, SPEED_TRACK_Y, SPEED_TRACK_W, SPEED_TRACK_H, C_TRACK);
+        float speed_norm = speed_ms / 100.0f;
+        int fw = slider_px(speed_norm, SPEED_TRACK_X, SPEED_TRACK_W) - SPEED_TRACK_X;
+        if (fw > 0) fill_rect(d, buf, SPEED_TRACK_X, SPEED_TRACK_Y, fw, SPEED_TRACK_H, C_FILL);
+        int tx = slider_px(speed_norm, SPEED_TRACK_X, SPEED_TRACK_W);
+        fill_circle(d, buf, tx, SPEED_TRACK_Y + SPEED_TRACK_H / 2, SLIDER_THUMB_R, C_THUMB);
+    }
+
+    // -----------------------------------------------------------------------
+    // HOLD slider
+    // -----------------------------------------------------------------------
+    {
+        float hold_ms = (float)p->param_hold.load();
+        char val[16];
+        if (hold_ms <= 0.0f) snprintf(val, sizeof(val), "0ms");
+        else snprintf(val, sizeof(val), "%.0fms", hold_ms);
+        draw_str(d, HOLD_LABEL_X, HOLD_LABEL_Y, "HOLD", d->xft_sm);
+        draw_str_r(d, HOLD_PCT_X, HOLD_PCT_Y, val, d->xft_sm);
+        fill_rect(d, buf, HOLD_TRACK_X, HOLD_TRACK_Y, HOLD_TRACK_W, HOLD_TRACK_H, C_TRACK);
+        float hold_norm = hold_ms / 200.0f;
+        int fw = slider_px(hold_norm, HOLD_TRACK_X, HOLD_TRACK_W) - HOLD_TRACK_X;
+        if (fw > 0) fill_rect(d, buf, HOLD_TRACK_X, HOLD_TRACK_Y, fw, HOLD_TRACK_H, C_FILL);
+        int tx = slider_px(hold_norm, HOLD_TRACK_X, HOLD_TRACK_W);
+        fill_circle(d, buf, tx, HOLD_TRACK_Y + HOLD_TRACK_H / 2, SLIDER_THUMB_R, C_THUMB);
     }
 
     XCopyArea(d->dpy, d->buf, d->win, d->gc, 0, 0, GUI_W, GUI_H, 0, 0);
@@ -334,6 +354,7 @@ static void set_param_and_notify(SilvertunePlugin *p, int param_id, double value
     case PARAM_SCALE: p->param_scale.store(value); break;
     case PARAM_WIDE:  p->param_wide.store(value);  break;
     case PARAM_SPEED: p->param_speed.store(value); break;
+    case PARAM_HOLD:  p->param_hold.store(value);  break;
     }
     p->host->request_callback(p->host);
 }
@@ -381,15 +402,21 @@ static void handle_button_press(X11Data *d, int mx, int my) {
         do_draw(d); return;
     }
     if (hit_wide_track(mx, my)) {
-        p->gui.drag_wide = true; p->gui.drag_tune = false;
+        p->gui.drag_wide = true; p->gui.drag_speed = false; p->gui.drag_hold = false;
         p->gui.drag_x0 = mx; p->gui.drag_v0 = (float)p->param_wide.load();
         set_param_and_notify(p, PARAM_WIDE, (double)slider_val(mx, WIDE_TRACK_X, WIDE_TRACK_W));
         do_draw(d); return;
     }
-    if (hit_tune_track(mx, my)) {
-        p->gui.drag_tune = true; p->gui.drag_wide = false;
+    if (hit_speed_track(mx, my)) {
+        p->gui.drag_speed = true; p->gui.drag_wide = false; p->gui.drag_hold = false;
         p->gui.drag_x0 = mx; p->gui.drag_v0 = (float)p->param_speed.load();
-        set_param_and_notify(p, PARAM_SPEED, (double)slider_val(mx, TUNE_TRACK_X, TUNE_TRACK_W));
+        set_param_and_notify(p, PARAM_SPEED, slider_val(mx, SPEED_TRACK_X, SPEED_TRACK_W) * 100.0);
+        do_draw(d); return;
+    }
+    if (hit_hold_track(mx, my)) {
+        p->gui.drag_hold = true; p->gui.drag_wide = false; p->gui.drag_speed = false;
+        p->gui.drag_x0 = mx; p->gui.drag_v0 = (float)p->param_hold.load();
+        set_param_and_notify(p, PARAM_HOLD, slider_val(mx, HOLD_TRACK_X, HOLD_TRACK_W) * 200.0);
         do_draw(d); return;
     }
 }
@@ -399,15 +426,19 @@ static void handle_motion(X11Data *d, int mx) {
     if (p->gui.drag_wide) {
         set_param_and_notify(p, PARAM_WIDE, (double)slider_val(mx, WIDE_TRACK_X, WIDE_TRACK_W));
         do_draw(d);
-    } else if (p->gui.drag_tune) {
-        set_param_and_notify(p, PARAM_SPEED, (double)slider_val(mx, TUNE_TRACK_X, TUNE_TRACK_W));
+    } else if (p->gui.drag_speed) {
+        set_param_and_notify(p, PARAM_SPEED, slider_val(mx, SPEED_TRACK_X, SPEED_TRACK_W) * 100.0);
+        do_draw(d);
+    } else if (p->gui.drag_hold) {
+        set_param_and_notify(p, PARAM_HOLD, slider_val(mx, HOLD_TRACK_X, HOLD_TRACK_W) * 200.0);
         do_draw(d);
     }
 }
 
 static void handle_button_release(X11Data *d) {
-    d->plugin->gui.drag_wide = false;
-    d->plugin->gui.drag_tune = false;
+    d->plugin->gui.drag_wide  = false;
+    d->plugin->gui.drag_speed = false;
+    d->plugin->gui.drag_hold  = false;
 }
 
 // ---------------------------------------------------------------------------

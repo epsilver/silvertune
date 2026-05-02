@@ -14,8 +14,9 @@ enum {
     PARAM_KEY   = 0,
     PARAM_SCALE = 1,
     PARAM_WIDE  = 2,
-    PARAM_SPEED = 3,
-    PARAM_COUNT = 4
+    PARAM_SPEED = 3,  // 0–100 ms
+    PARAM_HOLD  = 4,  // 0–200 ms
+    PARAM_COUNT = 5
 };
 
 static constexpr float DETUNE = 1.00463f; // +8 cents
@@ -63,7 +64,8 @@ struct SilvertunePlugin {
     std::atomic<double> param_key{0.0};
     std::atomic<double> param_scale{0.0};
     std::atomic<double> param_wide{0.0};
-    std::atomic<double> param_speed{1.0};
+    std::atomic<double> param_speed{0.0};
+    std::atomic<double> param_hold{0.0};
 
     // Audio state
     double sample_rate = 48000.0;
@@ -73,8 +75,9 @@ struct SilvertunePlugin {
     YinDetector yin;
     float held_ratio    = 1.0f;
     float current_ratio = 1.0f;
-    float locked_midi  = -1.0f; // currently locked MIDI note (-1 = unlocked)
-    int   low_conf_count = 0;   // consecutive low-confidence hops
+    float locked_midi   = -1.0f;
+    float hold_counter  = 0.0f;
+    int   low_conf_count = 0;
 
     // Grain pitch shifters (one per channel) + doubler
     GrainShifter shifter[2];
