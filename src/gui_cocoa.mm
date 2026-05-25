@@ -216,7 +216,7 @@ static void mac_str_r(const char *s, CGFloat x, CGFloat y, NSFont *font) {
             }
         }
         if (p->gui.snap_cooldown > 0) --p->gui.snap_cooldown;
-        float tune  = (float)p->param_speed.load();
+        float tune  = (float)p->param_speed.load() / 100.0f;
         float decay = 0.4f + (1.0f - tune) * 0.55f;
         p->gui.disp_cents *= decay;
     }
@@ -320,7 +320,7 @@ static void mac_str_r(const char *s, CGFloat x, CGFloat y, NSFont *font) {
     cg_right_triangle(ctx, SCALE_RIGHT_X, SCALE_BTN_Y, 1.0, 1.0, 1.0);
     {
         int ps = (int)std::lround(p->param_scale.load());
-        ps = ps < 0 ? 0 : (ps > 2 ? 2 : ps);
+        ps = ps < 0 ? 0 : (ps >= SCALE_COUNT ? SCALE_COUNT - 1 : ps);
         int gs = PARAM_TO_GUI_SCALE[ps];
         mac_str(SCALE_NAMES_GUI[gs], SCALE_TEXT_X, SCALE_BTN_Y, _font_md);
     }
@@ -349,22 +349,46 @@ static void mac_str_r(const char *s, CGFloat x, CGFloat y, NSFont *font) {
     }
 
     // -----------------------------------------------------------------------
-    // TUNE slider
+    // SPEED slider (0–100 ms)
     // -----------------------------------------------------------------------
     {
-        float tune = (float)p->param_speed.load();
-        char pct[16];
-        snprintf(pct, sizeof(pct), "%.0f%%", tune * 100.0f);
-        mac_str("TUNE", TUNE_LABEL_X, TUNE_LABEL_Y, _font_sm);
-        mac_str_r(pct, TUNE_PCT_X, TUNE_PCT_Y, _font_sm);
-        cgfill(ctx, TUNE_TRACK_X, TUNE_TRACK_Y, TUNE_TRACK_W, TUNE_TRACK_H,
+        float speed_ms = (float)p->param_speed.load();
+        char buf[16];
+        if (speed_ms <= 0.0f) snprintf(buf, sizeof(buf), "0ms");
+        else snprintf(buf, sizeof(buf), "%.0fms", speed_ms);
+        float norm = speed_ms / 100.0f;
+        mac_str("SPEED", SPEED_LABEL_X, SPEED_LABEL_Y, _font_sm);
+        mac_str_r(buf, SPEED_PCT_X, SPEED_PCT_Y, _font_sm);
+        cgfill(ctx, SPEED_TRACK_X, SPEED_TRACK_Y, SPEED_TRACK_W, SPEED_TRACK_H,
                R(COL_TRACK), G(COL_TRACK), B(COL_TRACK));
-        int fw = slider_px(tune, TUNE_TRACK_X, TUNE_TRACK_W) - TUNE_TRACK_X;
+        int fw = slider_px(norm, SPEED_TRACK_X, SPEED_TRACK_W) - SPEED_TRACK_X;
         if (fw > 0)
-            cgfill(ctx, TUNE_TRACK_X, TUNE_TRACK_Y, fw, TUNE_TRACK_H,
+            cgfill(ctx, SPEED_TRACK_X, SPEED_TRACK_Y, fw, SPEED_TRACK_H,
                    R(COL_FILL), G(COL_FILL), B(COL_FILL));
-        int tx = slider_px(tune, TUNE_TRACK_X, TUNE_TRACK_W);
-        cgcircle(ctx, tx, TUNE_TRACK_Y + TUNE_TRACK_H / 2, SLIDER_THUMB_R,
+        int tx = slider_px(norm, SPEED_TRACK_X, SPEED_TRACK_W);
+        cgcircle(ctx, tx, SPEED_TRACK_Y + SPEED_TRACK_H / 2, SLIDER_THUMB_R,
+                 R(COL_THUMB), G(COL_THUMB), B(COL_THUMB));
+    }
+
+    // -----------------------------------------------------------------------
+    // HOLD slider (0–200 ms)
+    // -----------------------------------------------------------------------
+    {
+        float hold_ms = (float)p->param_hold.load();
+        char buf[16];
+        if (hold_ms <= 0.0f) snprintf(buf, sizeof(buf), "0ms");
+        else snprintf(buf, sizeof(buf), "%.0fms", hold_ms);
+        float norm = hold_ms / 200.0f;
+        mac_str("HOLD", HOLD_LABEL_X, HOLD_LABEL_Y, _font_sm);
+        mac_str_r(buf, HOLD_PCT_X, HOLD_PCT_Y, _font_sm);
+        cgfill(ctx, HOLD_TRACK_X, HOLD_TRACK_Y, HOLD_TRACK_W, HOLD_TRACK_H,
+               R(COL_TRACK), G(COL_TRACK), B(COL_TRACK));
+        int fw = slider_px(norm, HOLD_TRACK_X, HOLD_TRACK_W) - HOLD_TRACK_X;
+        if (fw > 0)
+            cgfill(ctx, HOLD_TRACK_X, HOLD_TRACK_Y, fw, HOLD_TRACK_H,
+                   R(COL_FILL), G(COL_FILL), B(COL_FILL));
+        int tx = slider_px(norm, HOLD_TRACK_X, HOLD_TRACK_W);
+        cgcircle(ctx, tx, HOLD_TRACK_Y + HOLD_TRACK_H / 2, SLIDER_THUMB_R,
                  R(COL_THUMB), G(COL_THUMB), B(COL_THUMB));
     }
 
@@ -383,6 +407,7 @@ static void set_param_and_notify(SilvertunePlugin *p, int param_id, double value
     case PARAM_SCALE: p->param_scale.store(value); break;
     case PARAM_WIDE:  p->param_wide.store(value);  break;
     case PARAM_SPEED: p->param_speed.store(value); break;
+    case PARAM_HOLD:  p->param_hold.store(value);  break;
     }
     p->host->request_callback(p->host);
 }
@@ -433,22 +458,35 @@ static void set_param_and_notify(SilvertunePlugin *p, int param_id, double value
         return;
     }
     if (hit_wide_track(mx, my)) {
-        p->gui.drag_wide = true;
-        p->gui.drag_tune = false;
-        p->gui.drag_x0   = mx;
-        p->gui.drag_v0   = (float)p->param_wide.load();
+        p->gui.drag_wide  = true;
+        p->gui.drag_speed = false;
+        p->gui.drag_hold  = false;
+        p->gui.drag_x0    = mx;
+        p->gui.drag_v0    = (float)p->param_wide.load();
         float v = slider_val(mx, WIDE_TRACK_X, WIDE_TRACK_W);
         set_param_and_notify(p, PARAM_WIDE, (double)v);
         [self setNeedsDisplay:YES];
         return;
     }
-    if (hit_tune_track(mx, my)) {
-        p->gui.drag_tune = true;
-        p->gui.drag_wide = false;
-        p->gui.drag_x0   = mx;
-        p->gui.drag_v0   = (float)p->param_speed.load();
-        float v = slider_val(mx, TUNE_TRACK_X, TUNE_TRACK_W);
+    if (hit_speed_track(mx, my)) {
+        p->gui.drag_speed = true;
+        p->gui.drag_wide  = false;
+        p->gui.drag_hold  = false;
+        p->gui.drag_x0    = mx;
+        p->gui.drag_v0    = (float)p->param_speed.load();
+        float v = slider_val(mx, SPEED_TRACK_X, SPEED_TRACK_W) * 100.0f;
         set_param_and_notify(p, PARAM_SPEED, (double)v);
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    if (hit_hold_track(mx, my)) {
+        p->gui.drag_hold  = true;
+        p->gui.drag_wide  = false;
+        p->gui.drag_speed = false;
+        p->gui.drag_x0    = mx;
+        p->gui.drag_v0    = (float)p->param_hold.load();
+        float v = slider_val(mx, HOLD_TRACK_X, HOLD_TRACK_W) * 200.0f;
+        set_param_and_notify(p, PARAM_HOLD, (double)v);
         [self setNeedsDisplay:YES];
         return;
     }
@@ -462,16 +500,21 @@ static void set_param_and_notify(SilvertunePlugin *p, int param_id, double value
         float v = slider_val(mx, WIDE_TRACK_X, WIDE_TRACK_W);
         set_param_and_notify(p, PARAM_WIDE, (double)v);
         [self setNeedsDisplay:YES];
-    } else if (p->gui.drag_tune) {
-        float v = slider_val(mx, TUNE_TRACK_X, TUNE_TRACK_W);
+    } else if (p->gui.drag_speed) {
+        float v = slider_val(mx, SPEED_TRACK_X, SPEED_TRACK_W) * 100.0f;
         set_param_and_notify(p, PARAM_SPEED, (double)v);
+        [self setNeedsDisplay:YES];
+    } else if (p->gui.drag_hold) {
+        float v = slider_val(mx, HOLD_TRACK_X, HOLD_TRACK_W) * 200.0f;
+        set_param_and_notify(p, PARAM_HOLD, (double)v);
         [self setNeedsDisplay:YES];
     }
 }
 
 - (void)mouseUp:(NSEvent *)event {
-    _plugin->gui.drag_wide = false;
-    _plugin->gui.drag_tune = false;
+    _plugin->gui.drag_wide  = false;
+    _plugin->gui.drag_speed = false;
+    _plugin->gui.drag_hold  = false;
 }
 
 @end
